@@ -232,7 +232,7 @@ def main(args):
 
 
         if i % args.log_step == 0:
-            print(since(start) + 'iteration {0}'.format(i))
+            print(since(start) + 'iteration {0}/{1}'.format(i, n_iters))
             print("\tLoss: ", print_loss.data.numpy().tolist()[0] / args.log_step)
             print_loss = 0
             random_eval(encoder, decoder, batch, n=1, en=en, fr=fr, beam_size=-1)
@@ -267,7 +267,7 @@ if __name__ == '__main__':
     parser.add_argument('--num_epochs', type=int, default=5)
     parser.add_argument('--from_scratch', type=bool, default=False)
     parser.add_argument('--batch_size', type=int, default=64)
-    parser.add_argument('--learning_rate', type=float, default=0.002)
+    parser.add_argument('--learning_rate', type=float, default=0.001)
     args = parser.parse_args()
     print(args)
     main(args)
