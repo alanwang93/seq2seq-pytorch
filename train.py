@@ -153,7 +153,7 @@ def evaluate(encoder, decoder, var, dec_field, max_len=30, beam_size=-1):
             topv, topi = decoder_unpacked.data.topk(1)
             ni = int(topi.numpy()[0][0][0])
             if dec_field.vocab.itos[ni] == EOS:
-                outputs.append('<EOS>')
+                outputs.append(EOS)
                 break
             else:
                 outputs.append(dec_field.vocab.itos[ni])
@@ -235,7 +235,7 @@ def main(args):
             print(since(start) + 'iteration {0}/{1}'.format(i, n_iters))
             print("\tLoss: ", print_loss.data.numpy().tolist()[0] / args.log_step)
             print_loss = 0
-            random_eval(encoder, decoder, batch, n=1, en=en, fr=fr, beam_size=-1)
+            random_eval(encoder, decoder, batch, n=1, en=en, fr=fr, beam_size=args.beam_size)
 
         optimizer.zero_grad()
         loss.backward()
@@ -263,7 +263,8 @@ if __name__ == '__main__':
                         help='dimension of lstm hidden states')
     # parser.add_argument('--num_layers', type=int , default=1 ,
     #                     help='number of layers in rnn')
-
+    parser.add_argument('--beam_size', type=int , default=-1,
+                        help='beam size')
     parser.add_argument('--num_epochs', type=int, default=5)
     parser.add_argument('--from_scratch', type=bool, default=False)
     parser.add_argument('--batch_size', type=int, default=64)
