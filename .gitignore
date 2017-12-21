@@ -2,7 +2,10 @@
 .DS_Store
 *.DS_Store
 *.zip
+*.swp
+*.pkl
 
+data/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
