@@ -19,15 +19,12 @@ from torch import optim
 import torch.nn.functional as F
 from torch.utils import data
 from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
-from collections import Counter, OrderedDict
 
 from torchtext.vocab import Vocab
 # from torchtext.vocab import GloVe
 from torchtext.data import Field, Pipeline, RawField, Dataset, Example, BucketIterator
 from torchtext.data import get_tokenizer
 import os, time, sys, datetime, argparse, pickle
-import matplotlib.pyplot as plt
-import matplotlib.ticker as ticker
 
 from model import EncoderRNN, DecoderRNN
 import config
@@ -181,10 +178,10 @@ def main(args):
     if args.from_scratch or not os.path.isfile(c['model_path'] + c['prefix'] + 'encoder.pkl') \
             or not os.path.isfile(c['model_path'] + c['prefix'] + 'decoder.pkl'):
         encoder = EncoderRNN(vocab_size=len(src_field.vocab), embed_size=c['encoder_embed_size'],\
-                hidden_size=c['encoder_hidden_size'], padding_idx=PAD_IDX)
+                hidden_size=c['encoder_hidden_size'], padding_idx=PAD_IDX, n_layers=c['num_layers'])
         decoder = DecoderRNN(vocab_size=len(trg_field.vocab), embed_size=c['decoder_embed_size'],\
                 hidden_size=c['decoder_hidden_size'], encoder_hidden=c['encoder_hidden_size'],\
-                padding_idx=PAD_IDX)
+                padding_idx=PAD_IDX, n_layers=c['num_layers'])
     else:
         print(since(start) + "Loading models...")
         encoder = torch.load(c['model_path'] + c['prefix'] + 'encoder.pkl')
