@@ -241,5 +241,7 @@ if __name__ == '__main__':
     parser.add_argument('--config', type=str, default=None ,
                         help='model configurations, defined in config.py')
     parser.add_argument('--from_scratch', type=bool, default=False)
+    parser.add_argument('--disable_cuda', type=bool, default=False)
     args = parser.parse_args()
+    args.cuda = not args.disable_cuda and torch.cuda.is_available()
     main(args)
