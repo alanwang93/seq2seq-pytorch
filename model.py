@@ -159,5 +159,6 @@ class DecoderRNN(nn.Module):
             context_lengths=context_lengths
         )
         # Don't need LogSoftmax with CrossEntropyLoss
+        # the outputs are not normalized, and can be negative
         outputs = self.linear_out(attn_outputs)
         return outputs, decoder_hidden
