@@ -119,14 +119,18 @@ def evaluate(encoder, decoder, var, trg_field, max_len=30, beam_size=-1):
     H = [([SOS], 0.)]
     H_temp = []
     H_final = []
+    use_cuda = next(encoder.parameters()).is_cuda
 
     outputs = []
     encoder_inputs, encoder_lengths = var
+    encoder_inputs = cuda(encoder_inputs, use_cuda)
+    # encoder_lengths = cuda(encoder_lengths, use_cuda)
     encoder_packed, encoder_hidden = encoder(encoder_inputs, encoder_lengths)
     encoder_unpacked = pad_packed_sequence(encoder_packed)[0]
+    
     decoder_hidden = encoder_hidden
     decoder_inputs, decoder_lenghts = trg_field.numericalize(([[SOS]], [1]), device=-1)
-
+    decoder_inputs = cuda(decoder_inputs, use_cuda)
     if beam_size > 0:
         for i in range(max_len):
             for h in H:
@@ -155,13 +159,14 @@ def evaluate(encoder, decoder, var, trg_field, max_len=30, beam_size=-1):
             # Eval mode, dropout is not used
             decoder_unpacked, decoder_hidden = decoder.eval()(decoder_inputs, decoder_hidden, encoder_unpacked, encoder_lengths)
             topv, topi = decoder_unpacked.data.topk(1)
-            ni = int(topi.numpy()[0][0][0])
+            ni = int(topi.cpu().numpy()[0][0][0])
             if trg_field.vocab.itos[ni] == EOS:
                 outputs.append(EOS)
                 break
             else:
                 outputs.append(trg_field.vocab.itos[ni])
             decoder_inputs = Variable(torch.LongTensor([[ni]]))
+            decoder_inputs = cuda(decoder_inputs, use_cuda)
         outputs = " ".join(outputs)
     return outputs.strip()
 
@@ -170,12 +175,15 @@ def sample(encoder, decoder, var, trg_field, max_len=30, greedy=True):
     """
     sm = nn.Softmax()
 
+    use_cuda = next(encoder.parameters()).is_cuda
     outputs = []
     encoder_inputs, encoder_lengths = var
+    encoder_inputs = cuda(encoder_inputs, use_cuda)
     encoder_packed, encoder_hidden = encoder(encoder_inputs, encoder_lengths)
     encoder_unpacked = pad_packed_sequence(encoder_packed)[0]
     decoder_hidden = encoder_hidden
     decoder_inputs, decoder_lenghts = trg_field.numericalize(([[SOS]], [1]), device=-1)
+    decoder_inputs = cuda(decoder_inputs, use_cuda)
     for i in range(max_len):
         # TODO: shall we use eval mode?
         # decoder_unpacked: (1, 1, vocab_size)
@@ -185,11 +193,11 @@ def sample(encoder, decoder, var, trg_field, max_len=30, greedy=True):
             tv, ti = sm(decoder_unpacked.squeeze()).data.topk(10)
             print(tv)
             # ni must be an integer, not like numpy.int32
-            ni = int(topi.numpy()[0][0][0])
+            ni = int(topi.cpu().numpy()[0][0][0])
         else:
             m = Categorical(sm(decoder_unpacked.squeeze()))
             ni = m.sample()
-            ni = int(ni.data.numpy()[0])
+            ni = int(ni.cpu().data.numpy()[0])
 
         if trg_field.vocab.itos[ni] == EOS:
             outputs.append(EOS)
@@ -197,6 +205,7 @@ def sample(encoder, decoder, var, trg_field, max_len=30, greedy=True):
         else:
             outputs.append(trg_field.vocab.itos[ni])
         decoder_inputs = Variable(torch.LongTensor([[ni]]))
+        decoder_inputs = cuda(decoder_inputs, use_cuda)
     outputs = " ".join(outputs)
     return outputs.strip()
 
@@ -208,8 +217,8 @@ def random_eval(encoder, decoder, batch, n, src_field, trg_field, beam_size=-1):
     N = enc_inputs.size()[1]
     idx = np.random.choice(N, n)
     for i in idx:
-        print('\t> ' + itos(enc_inputs[:,i].data.numpy(), src_field))
-        print('\t= ' + itos(dec_inputs[:,i].data.numpy(), trg_field))
+        print('\t> ' + itos(enc_inputs[:,i].cpu().data.numpy(), src_field))
+        print('\t= ' + itos(dec_inputs[:,i].cpu().data.numpy(), trg_field))
         eval_input = (enc_inputs[:,i].unsqueeze(1), torch.LongTensor([enc_lengths[i]]))
         sent = evaluate(encoder, decoder, eval_input, trg_field=trg_field, beam_size=beam_size)
         print('\t< ' + sent)

@@ -57,10 +57,12 @@ class GlobalAttention(nn.Module):
         align = self.score(inputs, context)
         batch, tgt_len, src_len = align.size()
 
-
+    
         mask = self.sequence_mask(context_lengths)
         # (batch, 1, src_len)
         mask = mask.unsqueeze(1)  # Make it broadcastable.
+        if next(self.parameters()).is_cuda:
+            mask = mask.cuda()
         align.data.masked_fill_(1 - mask, -float('inf')) # fill <pad> with -inf
 
         align_vectors = self.softmax(align.view(batch*tgt_len, src_len))
