@@ -24,6 +24,7 @@ You need to install Spacy models specified in `config.py` (`src_lang` and `trg_l
 
 ### Other options
 - The model will use GPU if available, add `--disable_cuda True` to use cpu explicitly.
+- Use `CUDA_VISIBLE_DEVICES=2` to choose GPU device. 
 - Add `--from_scratch True` to restart training.
 
 ## TODO
