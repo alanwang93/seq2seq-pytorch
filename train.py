@@ -54,13 +54,13 @@ def main(args):
     batch_per_epoch = N // c['batch_size']
     n_iters = batch_per_epoch * c['num_epochs']
     print(since(start) + "{0} training samples, batch size={1}, {2} batches per epoch.".format(N, c['batch_size'], batch_per_epoch))
-    train_iter = BucketIterator(
+    train_iter = iter(BucketIterator(
         dataset=train, batch_size=c['batch_size'],
-        sort_key=lambda x: -len(x.src), device=-1)
+        sort_key=lambda x: -len(x.src), device=-1))
 
-    test_iter = BucketIterator(
+    test_iter = iter(BucketIterator(
         dataset=test, batch_size=c['batch_size'],
-        sort_key=lambda x: -len(x.src), device=-1)
+        sort_key=lambda x: -len(x.src), device=-1))
 
     PAD_IDX = trg_field.vocab.stoi[PAD] # default=1
 
@@ -92,7 +92,7 @@ def main(args):
     print(since(start) + "Start training... {0} iterations...".format(n_iters))
 
     for i in range(1, n_iters+1):
-        batch = next(iter(train_iter))
+        batch = next(train_iter)
         encoder_inputs, encoder_lengths = batch.src
         decoder_inputs, decoder_lengths = batch.trg
         # GPU
