@@ -154,7 +154,7 @@ def summarization():
     c['encoder_hidden_size'] = 512
     c['decoder_hidden_size'] = 512
     # training settings
-    c['num_epochs'] = 5
+    c['num_epochs'] = 50
     c['num_layers'] = 2
     c['batch_size'] = 64
     c['learning_rate'] = 0.001
