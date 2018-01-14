@@ -173,7 +173,7 @@ def evaluate(encoder, decoder, var, trg_field, max_len=30, beam_size=-1):
 def sample(encoder, decoder, var, trg_field, max_len=30, greedy=True):
     """ Sample an output given the input
     """
-    sm = nn.Softmax()
+    sm = nn.Softmax(dim=0)
 
     use_cuda = next(encoder.parameters()).is_cuda
     outputs = []
@@ -211,7 +211,6 @@ def sample(encoder, decoder, var, trg_field, max_len=30, greedy=True):
 
 
 def random_eval(encoder, decoder, batch, n, src_field, trg_field, beam_size=-1):
-    print("Random sampling...")
     enc_inputs, enc_lengths = batch.src
     dec_inputs, dec_lengths = batch.trg
     N = enc_inputs.size()[1]

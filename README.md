@@ -4,7 +4,7 @@ Seq2seq model with global attention, implemented with PyTorch.
 
 ## Dependencies
 - Python 3.6
-- PyTorch 0.2
+- PyTorch 0.3
 - Spacy 2.0.4
 - Torchtext
 - Numpy
@@ -24,7 +24,7 @@ You need to install Spacy models specified in `config.py` (`src_lang` and `trg_l
 
 ### Other options
 - The model will use GPU if available, add `--disable_cuda True` to use cpu explicitly.
-- Use `CUDA_VISIBLE_DEVICES=2` to choose GPU device. 
+- USe `CUDA_VISIBLE_DEVICES=2` to choose GPU device. For example, `CUDA_VISIBLE_DEVICES=1 python train.py --config chatbot_twitter`.
 - Add `--from_scratch True` to restart training.
 
 ## TODO

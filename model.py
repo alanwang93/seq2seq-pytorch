@@ -31,7 +31,7 @@ class GlobalAttention(nn.Module):
         self.linear_in = nn.Linear(enc_hidden, dec_hidden, bias=False)
         # W [c, h_t]
         self.linear_out = nn.Linear(dec_hidden + enc_hidden, dec_hidden)
-        self.softmax = nn.Softmax()
+        self.softmax = nn.Softmax(dim=1)
         self.tanh = nn.Tanh()
 
     def sequence_mask(self, lengths, max_len=None):
