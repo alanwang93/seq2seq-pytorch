@@ -22,6 +22,8 @@ You need to install Spacy models specified in `config.py` (`src_lang` and `trg_l
     - `python train.py --config chatbot_twitter` to use the twitter dataset and train a chatbot.
     - `python train.pu --config translation` to train a simple FR-EN translation model
 
+### Other options
+- The model will use GPU if available, add `--disable_cuda True` to use cpu explicitly.
 - Add `--from_scratch True` to restart training.
 
 ## TODO
