@@ -97,9 +97,9 @@ def main(args):
         decoder_inputs, decoder_lengths = batch.trg
         # GPU
         encoder_inputs = cuda(encoder_inputs, c['use_cuda'])
-        encoder_lengths = cuda(encoder_lengths, c['use_cuda'])
+        # encoder_lengths = cuda(encoder_lengths, c['use_cuda'])
         decoder_inputs = cuda(decoder_inputs, c['use_cuda'])
-        decoder_lengths = cuda(decoder_lengths, c['use_cuda'])
+        # decoder_lengths = cuda(decoder_lengths, c['use_cuda'])
 
         encoder_packed, encoder_hidden = encoder(encoder_inputs, encoder_lengths)
         encoder_unpacked = pad_packed_sequence(encoder_packed)[0]
