@@ -123,7 +123,7 @@ def main(args):
         if i % c['log_step'] == 0:
             # TODO: performence on test dataset
             print(since(start) + 'iteration {0}/{1}'.format(i, n_iters))
-            print("\tLoss: ", print_loss.data.numpy().tolist()[0] / c['log_step'])
+            print("\tLoss: ", print_loss.cpu().data.numpy().tolist()[0] / c['log_step'])
             print_loss = 0
             # enc_inputs, enc_lengths = batch.src
             # dec_inputs, dec_lengths = batch.trg
