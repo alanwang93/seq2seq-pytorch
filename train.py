@@ -110,8 +110,8 @@ def main(args):
         decoder_unpacked, decoder_hidden = decoder(decoder_inputs[:-1,:], encoder_hidden, encoder_unpacked, encoder_lengths)
         trg_len, batch_size, d = decoder_unpacked.size()
         # remove first symbol <SOS>
-        loss = CEL(decoder_unpacked.view(trg_len*batch_size, d), decoder_inputs[1:,:].view(-1))
-        print_loss += loss
+        ce_loss = CEL(decoder_unpacked.view(trg_len*batch_size, d), decoder_inputs[1:,:].view(-1))
+        print_loss += ce_loss
 
         assert args.self_critical >= 0. and args.self_critical <= 1.
         if args.self_critical > 1e-5:
@@ -131,15 +131,22 @@ def main(args):
                 sample_score = score(hyps=sample_sent, refs=gt_sent, metric='rouge')
                 reward = Variable(torch.Tensor([sample_score["rouge-1"]['f'] - greedy_score["rouge-1"]['f']]), requires_grad=False)
                 reward = cuda(reward, c['use_cuda'])
-                sc_loss += reward*torch.sum(sample_logp)
-                # print("r", reward)
-                # print("logp", sample_logp)
+                sc_loss -= reward*torch.sum(sample_logp)
+
         # print("SC", sc_loss)
-        if i % 2 == 0:
-            print(i)
-            print("CE:", loss)
-            print("SC:", sc_loss)
-        loss = (1-args.self_critical) * loss + args.self_critical * sc_loss
+            if i % c['log_step'] == 0:
+                print(i)
+                print("CE:", loss)
+                print("SC:", sc_loss)
+                print("GT", gt_sent)
+                print("greedy", greedy_score['rouge-1']['f'], greedy_sent)
+                print("sample", sample_score['rouge-1']['f'], sample_sent)
+
+                print("r", reward)
+                print("logp", sample_logp)
+            loss = (1-args.self_critical) * ce_loss + args.self_critical * sc_loss
+        else:
+            loss = ce_loss 
 
 
         optimizer.zero_grad()
@@ -160,7 +167,7 @@ def main(args):
             print("\tLoss: ", print_loss.cpu().data.numpy().tolist()[0] / c['log_step'])
             print_loss = 0
             random_eval(encoder, decoder, batch, n=1, src_field=src_field, trg_field=trg_field, config=c,
-                    greedy=False)
+                    greedy=True)
 
 
 
