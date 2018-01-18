@@ -8,7 +8,6 @@
 
 """
 Sequence to sequence model with global attention.
-
 """
 import numpy as np
 import torch
@@ -22,7 +21,6 @@ import os, time, sys
 
 class GlobalAttention(nn.Module):
     """
-
     """
     def __init__(self, enc_hidden, dec_hidden):
         super(GlobalAttention, self).__init__()
@@ -57,7 +55,7 @@ class GlobalAttention(nn.Module):
         align = self.score(inputs, context)
         batch, tgt_len, src_len = align.size()
 
-    
+
         mask = self.sequence_mask(context_lengths)
         # (batch, 1, src_len)
         mask = mask.unsqueeze(1)  # Make it broadcastable.
@@ -85,7 +83,6 @@ class GlobalAttention(nn.Module):
         """
         h_t (FloatTensor): batch x tgt_len x dim, inputs
         h_s (FloatTensor): batch x src_len x dim, context
-
         """
         tgt_batch, tgt_len, tgt_dim = h_t.size()
         src_batch, src_len, src_dim = h_s.size()
@@ -125,7 +122,6 @@ class EncoderRNN(nn.Module):
 
 class DecoderRNN(nn.Module):
     """
-
     """
     def __init__(self, vocab_size, embed_size, hidden_size, n_layers=1, encoder_hidden=None, dropout_p=0.2, padding_idx=1):
         super(DecoderRNN, self).__init__()
@@ -152,7 +148,6 @@ class DecoderRNN(nn.Module):
         embedded = self.embedding(inputs)
         embedded = self.dropout(embedded)
         decoder_output, decoder_hidden = self.rnn(embedded, hidden)
-
 
         # Calculate the attention.
         attn_outputs, attn_scores = self.attn(
