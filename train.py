@@ -116,9 +116,7 @@ def main(args):
         assert args.self_critical >= 0. and args.self_critical <= 1.
         if args.self_critical > 1e-5:
             sc_loss = cuda(Variable(torch.Tensor([0.])),c['use_cuda'])
-            for i in range(batch_size):
-
-
+            for j in range(batch_size):
                 enc_input = (encoder_inputs[:,j].unsqueeze(1), torch.LongTensor([encoder_lengths[j]]))
                 # use self critical training
                 greedy_out, _ = sample(encoder, decoder, enc_input, trg_field,
@@ -138,6 +136,7 @@ def main(args):
                 # print("logp", sample_logp)
         # print("SC", sc_loss)
         if i % 2 == 0:
+            print(i)
             print("CE:", loss)
             print("SC:", sc_loss)
         loss = (1-args.self_critical) * loss + args.self_critical * sc_loss
