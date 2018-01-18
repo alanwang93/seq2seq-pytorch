@@ -144,7 +144,7 @@ def summarization():
     c['src_lang'] = 'en_core_web_sm'
     c['trg_lang'] = 'en_core_web_sm'
     c['model_path'] = './models/'
-    c['log_step'] = 20
+    c['log_step'] = 50
     c['save_step'] = 100
     c['beam_size'] = -1
     # model settings
