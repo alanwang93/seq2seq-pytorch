@@ -118,7 +118,8 @@ def main(args):
             sc_loss = cuda(Variable(torch.Tensor([0.])),c['use_cuda'])
             for i in range(batch_size):
 
-                enc_input = (encoder_inputs[:,i].unsqueeze(1), torch.LongTensor([encoder_lengths[i]]))
+
+                enc_input = (encoder_inputs[:,j].unsqueeze(1), torch.LongTensor([encoder_lengths[j]]))
                 # use self critical training
                 greedy_out, _ = sample(encoder, decoder, enc_input, trg_field,
                         max_len=30, greedy=True, config=c)
@@ -127,7 +128,7 @@ def main(args):
                         max_len=30, greedy=False, config=c)
                 sample_sent = tostr(clean(sample_out))
                     # Ground truth
-                gt_sent = tostr(clean(itos(decoder_inputs[:,i].cpu().data.numpy(), trg_field)))
+                gt_sent = tostr(clean(itos(decoder_inputs[:,j].cpu().data.numpy(), trg_field)))
                 greedy_score = score(hyps=greedy_sent, refs=gt_sent, metric='rouge')
                 sample_score = score(hyps=sample_sent, refs=gt_sent, metric='rouge')
                 reward = Variable(torch.Tensor([sample_score["rouge-1"]['f'] - greedy_score["rouge-1"]['f']]), requires_grad=False)
