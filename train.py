@@ -112,9 +112,9 @@ def main(args):
         assert args.self_critical >= 0. and args.self_critical <= 1.
         if args.self_critical > 1e-5:
             sc_loss = Variable(torch.Tensor([0.]))
-            for i in range(batch_size):
+            for j in range(batch_size):
 
-                enc_input = (encoder_inputs[:,i].unsqueeze(1), torch.LongTensor([encoder_lengths[i]]))
+                enc_input = (encoder_inputs[:,j].unsqueeze(1), torch.LongTensor([encoder_lengths[j]]))
                 # use self critical training
                 greedy_out, _ = sample(encoder, decoder, enc_input, trg_field,
                         max_len=30, greedy=True, config=c)
@@ -123,7 +123,7 @@ def main(args):
                         max_len=30, greedy=False, config=c)
                 sample_sent = tostr(clean(sample_out))
                     # Ground truth
-                gt_sent = tostr(clean(itos(decoder_inputs[:,i].cpu().data.numpy(), trg_field)))
+                gt_sent = tostr(clean(itos(decoder_inputs[:,j].cpu().data.numpy(), trg_field)))
                 greedy_score = score(hyps=greedy_sent, refs=gt_sent, metric='rouge')
                 sample_score = score(hyps=sample_sent, refs=gt_sent, metric='rouge')
                 reward = Variable(torch.Tensor([sample_score["rouge-1"]['f'] - greedy_score["rouge-1"]['f']]), requires_grad=False)
@@ -132,9 +132,10 @@ def main(args):
                 # print("r", reward)
                 # print("logp", sample_logp)
         # print("SC", sc_loss)
-        print("CE:", loss)
-        print("SC:", sc_loss)
-        loss = (1-args.self_critical) * loss + sc_loss
+        if i % 2 == 0:
+            print("CE:", loss)
+            print("SC:", sc_loss)
+        loss = (1-args.self_critical) * loss + args.self_critical * sc_loss
 
 
         optimizer.zero_grad()
