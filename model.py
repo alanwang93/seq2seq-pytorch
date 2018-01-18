@@ -55,7 +55,7 @@ class GlobalAttention(nn.Module):
         align = self.score(inputs, context)
         batch, tgt_len, src_len = align.size()
 
-    
+
         mask = self.sequence_mask(context_lengths)
         # (batch, 1, src_len)
         mask = mask.unsqueeze(1)  # Make it broadcastable.
@@ -148,7 +148,6 @@ class DecoderRNN(nn.Module):
         embedded = self.embedding(inputs)
         embedded = self.dropout(embedded)
         decoder_output, decoder_hidden = self.rnn(embedded, hidden)
-
 
         # Calculate the attention.
         attn_outputs, attn_scores = self.attn(

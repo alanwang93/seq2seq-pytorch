@@ -158,8 +158,8 @@ def summarization():
     c['num_layers'] = 2
     c['batch_size'] = 64
     c['learning_rate'] = 0.001
-    c['encoder_vocab'] = 10000
-    c['decoder_vocab'] = 10000
+    c['encoder_vocab'] = 30000
+    c['decoder_vocab'] = 30000
 
     def load(src_path, trg_path, src_field, trg_field):
         """

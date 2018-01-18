@@ -91,15 +91,14 @@ def main(args):
 
     print(since(start) + "Start training... {0} iterations...".format(n_iters))
 
+    # Start training
     for i in range(1, n_iters+1):
         batch = next(iter(train_iter))
         encoder_inputs, encoder_lengths = batch.src
         decoder_inputs, decoder_lengths = batch.trg
         # GPU
         encoder_inputs = cuda(encoder_inputs, c['use_cuda'])
-        # encoder_lengths = cuda(encoder_lengths, c['use_cuda'])
         decoder_inputs = cuda(decoder_inputs, c['use_cuda'])
-        # decoder_lengths = cuda(decoder_lengths, c['use_cuda'])
 
         encoder_packed, encoder_hidden = encoder(encoder_inputs, encoder_lengths)
         encoder_unpacked = pad_packed_sequence(encoder_packed)[0]
@@ -110,26 +109,42 @@ def main(args):
         loss = CEL(decoder_unpacked.view(trg_len*batch_size, d), decoder_inputs[1:,:].view(-1))
         print_loss += loss
 
+        assert args.self_critical >= 0. and args.self_critical <= 1.
+        if args.self_critical > 1e-5:
+            for i in range(batch_size):
+                enc_input = (encoder_inputs[:,i].unsqueeze(1), torch.LongTensor([encoder_lengths[i]]))
+                # use self critical training
+                greedy_out, greedy_logp = sample(encoder, decoder, enc_input, trg_field,
+                        max_len=30, greedy=True, config=c)
+                greedy_sent = tostr(clean(greedy_out))
+                sample_out, sample_logp = sample(encoder, decoder, enc_input, trg_field,
+                        max_len=30, greedy=False, config=c)
+                sample_sent = tostr(clean(sample_out))
+                    # Ground truth
+                gt_sent = tostr(clean(itos(decoder_inputs[:,i].cpu().data.numpy(), trg_field)))
+
+
+
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
 
         if i % c['save_step'] == 0:
             # TODO: save log
+            synchronize(c)
             print(since(start) + "Saving models...")
             torch.save(encoder, c['model_path'] + c['prefix'] + 'encoder.pkl')
             torch.save(decoder, c['model_path'] + c['prefix'] + 'decoder.pkl')
 
         if i % c['log_step'] == 0:
             # TODO: performence on test dataset
+            synchronize(c)
             print(since(start) + 'iteration {0}/{1}'.format(i, n_iters))
             print("\tLoss: ", print_loss.cpu().data.numpy().tolist()[0] / c['log_step'])
             print_loss = 0
-            # enc_inputs, enc_lengths = batch.src
-            # dec_inputs, dec_lengths = batch.trg
-            # eval_input = (enc_inputs[:,1].unsqueeze(1), torch.LongTensor([enc_lengths[1]]))
-            # sent = sample(encoder, decoder, eval_input, trg_field=trg_field, greedy=True)
-            random_eval(encoder, decoder, batch, n=1, src_field=src_field, trg_field=trg_field, beam_size=c['beam_size'])
+            random_eval(encoder, decoder, batch, n=1, src_field=src_field, trg_field=trg_field, config=c,
+                    greedy=False)
+
 
 
 
@@ -140,6 +155,7 @@ if __name__ == '__main__':
                         help='model configurations, defined in config.py')
     parser.add_argument('--from_scratch', type=bool, default=False)
     parser.add_argument('--disable_cuda', type=bool, default=False)
+    parser.add_argument('--self_critical', type=float, default=0.)
     args = parser.parse_args()
     args.use_cuda = not args.disable_cuda and torch.cuda.is_available()
     if args.use_cuda:
