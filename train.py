@@ -115,7 +115,7 @@ def main(args):
 
         assert args.self_critical >= 0. and args.self_critical <= 1.
         if args.self_critical > 1e-5:
-            sc_loss = Variable(torch.Tensor([0.]))
+            sc_loss = cuda(Variable(torch.Tensor([0.])),c['use_cuda'])
             for i in range(batch_size):
 
                 enc_input = (encoder_inputs[:,i].unsqueeze(1), torch.LongTensor([encoder_lengths[i]]))
@@ -136,9 +136,10 @@ def main(args):
                 # print("r", reward)
                 # print("logp", sample_logp)
         # print("SC", sc_loss)
-        print("CE:", loss)
-        print("SC:", sc_loss)
-        loss = (1-args.self_critical) * loss + sc_loss
+        if i % 2 == 0:
+            print("CE:", loss)
+            print("SC:", sc_loss)
+        loss = (1-args.self_critical) * loss + args.self_critical * sc_loss
 
 
         optimizer.zero_grad()
