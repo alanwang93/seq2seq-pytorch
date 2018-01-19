@@ -144,8 +144,9 @@ def summarization():
     c['src_lang'] = 'en_core_web_sm'
     c['trg_lang'] = 'en_core_web_sm'
     c['model_path'] = './models/'
-    c['log_step'] = 10
-    c['save_step'] = 100
+    c['log_step'] = 50
+    c['test_step'] = 1000
+    c['save_step'] = 200
     c['beam_size'] = -1
     # model settings
     c['encoder_embed_size'] = 256
@@ -157,8 +158,8 @@ def summarization():
     c['num_epochs'] = 50
     c['num_layers'] = 2
     c['batch_size'] = 64
-    c['learning_rate'] = 0.001
-    c['encoder_vocab'] = 20000
+    c['learning_rate'] = 0.0001
+    c['encoder_vocab'] = 30000
     c['decoder_vocab'] = 20000
 
     def load(src_path, trg_path, src_field, trg_field):
@@ -175,18 +176,18 @@ def summarization():
     c['load'] = load
     return c
 
-def summarization_small():
+def summarization_large():
     c = {}
     # filename is of form: 'train.src', 'test.trg'
-    c['root'] = 'data/summarization_small/'
-    c['prefix'] = 'summarization_small_'
+    c['root'] = 'data/summarization_large/'
+    c['prefix'] = 'summarization_large_'
     c['splits'] = ['train', 'test']
     # names of Spacy models
     c['src_lang'] = 'en_core_web_sm'
     c['trg_lang'] = 'en_core_web_sm'
     c['model_path'] = './models/'
-    c['log_step'] = 100
-    c['save_step'] = 500
+    c['log_step'] = 50
+    c['save_step'] = 200
     c['beam_size'] = -1
     # model settings
     c['encoder_embed_size'] = 256
@@ -199,8 +200,8 @@ def summarization_small():
     c['num_layers'] = 2
     c['batch_size'] = 64
     c['learning_rate'] = 0.001
-    c['encoder_vocab'] = 10000
-    c['decoder_vocab'] = 10000
+    c['encoder_vocab'] = 50000
+    c['decoder_vocab'] = 20000
 
     def load(src_path, trg_path, src_field, trg_field):
         """
