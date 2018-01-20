@@ -60,6 +60,7 @@ def main(args):
     train_iter = iter(BucketIterator(
         dataset=train, batch_size=c['batch_size'],
         sort_key=lambda x: -len(x.src), device=-1))
+
     test_iter = iter(BucketIterator(
         dataset=test, batch_size=1,
         sort_key=lambda x: -len(x.src), device=-1))
@@ -118,7 +119,6 @@ def main(args):
         trg_len, batch_size, d = decoder_unpacked.size()
         # remove first symbol <SOS>
         ce_loss = CEL(decoder_unpacked.view(trg_len*batch_size, d), decoder_inputs[1:,:].view(-1))
-        print(ce_loss)
         print_loss += ce_loss.data
 
         assert args.self_critical >= 0. and args.self_critical <= 1.
@@ -154,7 +154,6 @@ def main(args):
         else:
             loss = ce_loss
 
-
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
@@ -170,7 +169,6 @@ def main(args):
             torch.save(decoder, c['model_path'] + c['prefix'] + 'decoder.pkl')
 
         if i % c['log_step'] == 0:
-            # TODO: performence on test dataset
             synchronize(c)
             print(since(start) + 'epoch {0}, iteration {1}/{2}'.format(n_epoch, i, n_iters))
             print("\tTrain loss: ", print_loss.cpu().numpy().tolist()[0] / c['log_step'])
