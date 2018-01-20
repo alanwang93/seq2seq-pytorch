@@ -24,7 +24,7 @@ from torchtext.vocab import Vocab
 # from torchtext.vocab import GloVe
 from torchtext.data import Field, Pipeline, RawField, Dataset, Example, BucketIterator
 from torchtext.data import get_tokenizer
-
+from rouge import Rouge
 # TODO: add these into configuration
 EOS = "<eos>"
 SOS = "<sos>"
@@ -248,7 +248,7 @@ def random_eval(encoder, decoder, batch, n, src_field, trg_field, config=None,
         print()
 
 
-def score(hyp, ref, metric='rouge'):
+def score(hyps, refs, metric='rouge'):
     """
     Args:
         hyp: predicted sentence
@@ -257,6 +257,7 @@ def score(hyp, ref, metric='rouge'):
     """
     assert metric in ['rouge', 'bleu']
     if metric is 'rouge':
+        rouge = Rouge()
     # {"rouge-1": {"f": _, "p": _, "r": _}, "rouge-2" : { ..     }, "rouge-3": { ... }}
         scores = rouge.get_scores(hyps, refs, avg=True)
     elif metric is 'bleu':

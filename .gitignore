@@ -4,6 +4,9 @@
 *.zip
 *.swp
 *.pkl
+*.log
+log.txt
+.nfs*
 
 data/
 models/

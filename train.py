@@ -60,14 +60,14 @@ def main(args):
     train_iter = iter(BucketIterator(
         dataset=train, batch_size=c['batch_size'],
         sort_key=lambda x: -len(x.src), device=-1))
-    
-
     test_iter = iter(BucketIterator(
-        dataset=test, batch_size=c['batch_size'],
+        dataset=test, batch_size=1,
         sort_key=lambda x: -len(x.src), device=-1))
 
-    PAD_IDX = trg_field.vocab.stoi[PAD] # default=1
+    del train
+    del test
 
+    PAD_IDX = trg_field.vocab.stoi[PAD] # default=1
 
     if args.from_scratch or not os.path.isfile(c['model_path'] + c['prefix'] + 'encoder.pkl') \
             or not os.path.isfile(c['model_path'] + c['prefix'] + 'decoder.pkl'):
@@ -77,6 +77,12 @@ def main(args):
         decoder = DecoderRNN(vocab_size=len(trg_field.vocab), embed_size=c['decoder_embed_size'],\
                 hidden_size=c['decoder_hidden_size'], encoder_hidden=c['encoder_hidden_size'],\
                 padding_idx=PAD_IDX, n_layers=c['num_layers'])
+        # TODO: save training log
+        log = { 'global_step':0,
+                'steps':[],
+                'loss':[],
+                'rl_score': [],
+                'score':[]}
     else:
         # Load from saved model
         print(since(start) + "Loading models...")
@@ -92,11 +98,12 @@ def main(args):
     optimizer = optim.Adam(params, lr=c['learning_rate'])
     print_loss = 0
 
-
     print(since(start) + "Start training... {0} iterations...".format(n_iters))
 
     # Start training
     for i in range(1, n_iters+1):
+        print(i)
+        n_epoch = i // batch_per_epoch + 1
         batch = next(train_iter)
         encoder_inputs, encoder_lengths = batch.src
         decoder_inputs, decoder_lengths = batch.trg
@@ -110,28 +117,50 @@ def main(args):
         decoder_unpacked, decoder_hidden = decoder(decoder_inputs[:-1,:], encoder_hidden, encoder_unpacked, encoder_lengths)
         trg_len, batch_size, d = decoder_unpacked.size()
         # remove first symbol <SOS>
-        loss = CEL(decoder_unpacked.view(trg_len*batch_size, d), decoder_inputs[1:,:].view(-1))
-        print_loss += loss
+        ce_loss = CEL(decoder_unpacked.view(trg_len*batch_size, d), decoder_inputs[1:,:].view(-1))
+        print(ce_loss)
+        print_loss += ce_loss.data
 
         assert args.self_critical >= 0. and args.self_critical <= 1.
         if args.self_critical > 1e-5:
-            for i in range(batch_size):
-                enc_input = (encoder_inputs[:,i].unsqueeze(1), torch.LongTensor([encoder_lengths[i]]))
+            sc_loss = cuda(Variable(torch.Tensor([0.])), c['use_cuda'])
+            for j in range(batch_size):
+                enc_input = (encoder_inputs[:,j].unsqueeze(1), torch.LongTensor([encoder_lengths[j]]))
                 # use self critical training
-                greedy_out, greedy_logp = sample(encoder, decoder, enc_input, trg_field,
+                greedy_out, _ = sample(encoder, decoder, enc_input, trg_field,
                         max_len=30, greedy=True, config=c)
                 greedy_sent = tostr(clean(greedy_out))
                 sample_out, sample_logp = sample(encoder, decoder, enc_input, trg_field,
                         max_len=30, greedy=False, config=c)
                 sample_sent = tostr(clean(sample_out))
                     # Ground truth
-                gt_sent = tostr(clean(itos(decoder_inputs[:,i].cpu().data.numpy(), trg_field)))
+                gt_sent = tostr(clean(itos(decoder_inputs[:,j].cpu().data.numpy(), trg_field)))
+                greedy_score = score(hyps=greedy_sent, refs=gt_sent, metric='rouge')
+                sample_score = score(hyps=sample_sent, refs=gt_sent, metric='rouge')
+                reward = Variable(torch.Tensor([sample_score["rouge-1"]['f'] - greedy_score["rouge-1"]['f']]), requires_grad=False)
+                reward = cuda(reward, c['use_cuda'])
+                sc_loss -= reward*torch.sum(sample_logp)
 
+        # print("SC", sc_loss)
+            if i % c['log_step'] == 0:
+                print(i)
+                print("CE:", ce_loss)
+                print("SC:", sc_loss)
+                print("GT", gt_sent)
+                print("greedy", greedy_score['rouge-1']['f'], greedy_sent)
+                print("sample", sample_score['rouge-1']['f'], sample_sent)
+            
+            loss = (1-args.self_critical) * ce_loss + args.self_critical * sc_loss
+        else:
+            loss = ce_loss
 
 
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
+
+        # free memory
+        del encoder_inputs, decoder_inputs
 
         if i % c['save_step'] == 0:
             # TODO: save log
@@ -143,12 +172,51 @@ def main(args):
         if i % c['log_step'] == 0:
             # TODO: performence on test dataset
             synchronize(c)
-            print(since(start) + 'iteration {0}/{1}'.format(i, n_iters))
-            print("\tLoss: ", print_loss.cpu().data.numpy().tolist()[0] / c['log_step'])
+            print(since(start) + 'epoch {0}, iteration {1}/{2}'.format(n_epoch, i, n_iters))
+            print("\tTrain loss: ", print_loss.cpu().numpy().tolist()[0] / c['log_step'])
             print_loss = 0
             random_eval(encoder, decoder, batch, n=1, src_field=src_field, trg_field=trg_field, config=c,
-                    greedy=False)
+                    greedy=True)
 
+        if i % c['test_step'] == 0:
+            test_loss = cuda(Variable(torch.Tensor([0.]), requires_grad=False), c['use_cuda'])
+            test_rouge = 0
+            gts = []
+            greedys = []
+            n_test = len(test.examples)
+            for j in range(n_test):
+                test_batch = next(test_iter)
+                test_encoder_inputs, test_encoder_lengths = test_batch.src
+                test_decoder_inputs, test_decoder_lengths = test_batch.trg
+                # GPU
+                test_encoder_inputs = cuda(Variable(test_encoder_inputs.data, volatile=True), c['use_cuda'])
+                test_decoder_inputs = cuda(Variable(test_decoder_inputs.data, volatile=True), c['use_cuda'])
+
+                test_encoder_packed, test_encoder_hidden = encoder(test_encoder_inputs, test_encoder_lengths)
+                test_encoder_unpacked = pad_packed_sequence(test_encoder_packed)[0]
+                # remove last symbol
+                test_decoder_unpacked, test_decoder_hidden = decoder(test_decoder_inputs[:-1,:], test_encoder_hidden, test_encoder_unpacked, test_encoder_lengths)
+                trg_len, batch_size, d = test_decoder_unpacked.size()
+                # remove first symbol <SOS>
+                test_ce_loss = CEL(test_decoder_unpacked.view(trg_len*batch_size, d), test_decoder_inputs[1:,:].view(-1))
+                test_loss += test_ce_loss
+
+                test_enc_input = (test_encoder_inputs[:,0].unsqueeze(1), torch.LongTensor([test_encoder_lengths[0]]))
+                # use self critical training
+                test_greedy_out, _ = sample(encoder, decoder, test_enc_input, trg_field,
+                        max_len=30, greedy=True, config=c)
+                test_greedy_sent = tostr(clean(test_greedy_out))
+
+                test_gt_sent = tostr(clean(itos(test_decoder_inputs[:,0].cpu().data.numpy(), trg_field)))
+                gts.append(test_gt_sent)
+                greedys.append(test_greedy_sent)
+
+            test_rouge = score(hyps=greedys, refs=gts, metric='rouge')['rouge-1']['f']
+                
+            synchronize(c)
+            print("\tTest loss: ", test_loss.cpu().data.numpy().tolist()[0]/n_test)
+            print("\tTest ROUGE-1_f: ", test_rouge)
+                
 
 
 
