@@ -50,13 +50,15 @@ def main(args):
     print("Source vocab: {0}".format(len(src_field.vocab.itos)))
     print("Target vocab: {0}".format(len(trg_field.vocab.itos)))
 
-    if 'test' in c['splits']:
-        test = datasets['test']
+    test = datasets['test']
+    n_test = len(test.examples)
 
     N = len(train.examples)
     batch_per_epoch = N // c['batch_size']
     n_iters = batch_per_epoch * c['num_epochs']
+
     print(since(start) + "{0} training samples, batch size={1}, {2} batches per epoch.".format(N, c['batch_size'], batch_per_epoch))
+
     train_iter = iter(BucketIterator(
         dataset=train, batch_size=c['batch_size'],
         sort_key=lambda x: -len(x.src), device=-1))
@@ -93,6 +95,9 @@ def main(args):
     if c['use_cuda']:
         encoder.cuda()
         decoder.cuda()
+    else:
+        encoder.cpu()
+        decoder.cpu()
 
     CEL = nn.CrossEntropyLoss(size_average=True, ignore_index=PAD_IDX)
     params = list(encoder.parameters()) +  list(decoder.parameters())
@@ -103,7 +108,6 @@ def main(args):
 
     # Start training
     for i in range(1, n_iters+1):
-        print(i)
         n_epoch = i // batch_per_epoch + 1
         batch = next(train_iter)
         encoder_inputs, encoder_lengths = batch.src
@@ -141,9 +145,7 @@ def main(args):
                 reward = cuda(reward, c['use_cuda'])
                 sc_loss -= reward*torch.sum(sample_logp)
 
-        # print("SC", sc_loss)
             if i % c['log_step'] == 0:
-                print(i)
                 print("CE:", ce_loss)
                 print("SC:", sc_loss)
                 print("GT", gt_sent)
@@ -177,11 +179,10 @@ def main(args):
                     greedy=True)
 
         if i % c['test_step'] == 0:
-            test_loss = cuda(Variable(torch.Tensor([0.]), requires_grad=False), c['use_cuda'])
+            test_loss = 0
             test_rouge = 0
-            gts = []
+            refs = []
             greedys = []
-            n_test = len(test.examples)
             for j in range(n_test):
                 test_batch = next(test_iter)
                 test_encoder_inputs, test_encoder_lengths = test_batch.src
@@ -197,23 +198,23 @@ def main(args):
                 trg_len, batch_size, d = test_decoder_unpacked.size()
                 # remove first symbol <SOS>
                 test_ce_loss = CEL(test_decoder_unpacked.view(trg_len*batch_size, d), test_decoder_inputs[1:,:].view(-1))
-                test_loss += test_ce_loss
+                test_loss += test_ce_loss.data
 
                 test_enc_input = (test_encoder_inputs[:,0].unsqueeze(1), torch.LongTensor([test_encoder_lengths[0]]))
-                # use self critical training
                 test_greedy_out, _ = sample(encoder, decoder, test_enc_input, trg_field,
                         max_len=30, greedy=True, config=c)
                 test_greedy_sent = tostr(clean(test_greedy_out))
 
                 test_gt_sent = tostr(clean(itos(test_decoder_inputs[:,0].cpu().data.numpy(), trg_field)))
-                gts.append(test_gt_sent)
+                refs.append(test_gt_sent)
                 greedys.append(test_greedy_sent)
 
-            test_rouge = score(hyps=greedys, refs=gts, metric='rouge')['rouge-1']['f']
+            test_rouge = score(hyps=greedys, refs=refs, metric='rouge')['rouge-1']['f']
                 
             synchronize(c)
-            print("\tTest loss: ", test_loss.cpu().data.numpy().tolist()[0]/n_test)
-            print("\tTest ROUGE-1_f: ", test_rouge)
+            print("  Test loss: {0}".format(test_loss.cpu().numpy().tolist()[0]/n_test))
+            print("  Test ROUGE-1_f: {0}\n".format(test_rouge))
+
                 
 
 

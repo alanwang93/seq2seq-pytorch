@@ -66,6 +66,9 @@ def main(args):
     if c['use_cuda']:
         encoder.cuda()
         decoder.cuda()
+    else:
+        encoder.cpu()
+        decoder.cpu()
 
     CEL = nn.CrossEntropyLoss(size_average=True, ignore_index=PAD_IDX)
     test_losses = []

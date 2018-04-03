@@ -144,7 +144,7 @@ def summarization():
     c['src_lang'] = 'en_core_web_sm'
     c['trg_lang'] = 'en_core_web_sm'
     c['model_path'] = './models/'
-    c['log_step'] = 50
+    c['log_step'] = 200
     c['test_step'] = 1000
     c['save_step'] = 200
     c['beam_size'] = -1
@@ -186,9 +186,9 @@ def summarization_large():
     c['src_lang'] = 'en_core_web_sm'
     c['trg_lang'] = 'en_core_web_sm'
     c['model_path'] = './models/'
-    c['log_step'] = 200
-    c['test_step'] = 2000
-    c['save_step'] = 1000
+    c['log_step'] = 400
+    c['test_step'] = 400
+    c['save_step'] = 400
     c['beam_size'] = -1
     # model settings
     c['encoder_embed_size'] = 256
@@ -199,8 +199,8 @@ def summarization_large():
     # training settings
     c['num_epochs'] = 50
     c['num_layers'] = 2
-    c['batch_size'] = 64
-    c['learning_rate'] = 0.001
+    c['batch_size'] = 32
+    c['learning_rate'] = 0.0001
     c['encoder_vocab'] = 30000
     c['decoder_vocab'] = 20000
 
@@ -217,3 +217,4 @@ def summarization_large():
 
     c['load'] = load
     return c
+

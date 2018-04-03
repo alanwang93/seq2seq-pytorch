@@ -4,8 +4,8 @@
 *.zip
 *.swp
 *.pkl
+log/
 *.log
-log.txt
 .nfs*
 
 data/
