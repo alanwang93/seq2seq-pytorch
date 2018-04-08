@@ -134,19 +134,19 @@ def translation_scst():
     c['load'] = load
     return c
 
-def summarization():
+def summarization_small():
     c = {}
     # filename is of form: 'train.src', 'test.trg'
-    c['root'] = 'data/summarization/'
-    c['prefix'] = 'summarization_'
+    c['root'] = 'data/summarization_small/'
+    c['prefix'] = 'summarization_small_'
     c['splits'] = ['train', 'test']
     # names of Spacy models
     c['src_lang'] = 'en_core_web_sm'
     c['trg_lang'] = 'en_core_web_sm'
     c['model_path'] = './models/'
     c['log_step'] = 200
-    c['test_step'] = 1000
-    c['save_step'] = 200
+    c['test_step'] = 4000
+    c['save_step'] = 2000
     c['beam_size'] = -1
     # model settings
     c['encoder_embed_size'] = 256
@@ -176,19 +176,19 @@ def summarization():
     c['load'] = load
     return c
 
-def summarization_large():
+def summarization():
     c = {}
     # filename is of form: 'train.src', 'test.trg'
-    c['root'] = 'data/summarization_large/'
-    c['prefix'] = 'summarization_large_'
+    c['root'] = 'data/summarization/'
+    c['prefix'] = 'summarization_'
     c['splits'] = ['train', 'test']
     # names of Spacy models
     c['src_lang'] = 'en_core_web_sm'
     c['trg_lang'] = 'en_core_web_sm'
     c['model_path'] = './models/'
     c['log_step'] = 400
-    c['test_step'] = 400
-    c['save_step'] = 400
+    c['test_step'] = 4000
+    c['save_step'] = 1000
     c['beam_size'] = -1
     # model settings
     c['encoder_embed_size'] = 256

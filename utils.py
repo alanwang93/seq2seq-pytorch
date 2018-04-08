@@ -18,7 +18,7 @@ import torch.nn.functional as F
 from torch.utils import data
 from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 from torch.distributions import Categorical
-import os, time, sys, datetime, argparse, pickle
+import os, time, sys, datetime, argparse, pickle, logging
 import spacy
 from torchtext.vocab import Vocab
 # from torchtext.vocab import GloVe
@@ -70,6 +70,23 @@ def itos(s, field):
 
 def since(t):
     return '[' + str(datetime.timedelta(seconds=time.time() - t)) + '] '
+
+def init_logging(log_name):
+    """
+
+    """
+    formatter = logging.Formatter('%(asctime)s [%(levelname)s] %(module)s: %(message)s',
+            datefmt='%m/%d/%Y %H:%M:%S'   )
+    handler = logging.FileHandler(log_name)
+    out = logging.StreamHandler(sys.stdout)
+
+    handler.setFormatter(formatter)
+    out.setFormatter(formatter)
+    out.setLevel(logging.INFO)
+    logging.getLogger().addHandler(handler)
+    logging.getLogger().addHandler(out)
+    logging.getLogger().setLevel(logging.INFO)
+    return logging
 
 
 def load_data(c):
@@ -230,8 +247,7 @@ def sample(encoder, decoder, var, trg_field, max_len=30, greedy=False, config=No
 
 
 def random_eval(encoder, decoder, batch, n, src_field, trg_field, config=None,
-        greedy=False, metric='rouge'):
-    print("Random sampling...")
+        greedy=False, metric='rouge', logger=None):
 
     enc_inputs, enc_lengths = batch.src
     dec_inputs, dec_lengths = batch.trg
@@ -239,13 +255,12 @@ def random_eval(encoder, decoder, batch, n, src_field, trg_field, config=None,
     N = enc_inputs.size()[1]
     idx = np.random.choice(N, n)
     for i in idx:
-        print('\t> ' + tostr(clean(itos(enc_inputs[:,i].cpu().data.numpy(), src_field))))
-        print('\t= ' + tostr(clean(itos(dec_inputs[:,i].cpu().data.numpy(), trg_field))))
+        logger.info('> ' + tostr(clean(itos(enc_inputs[:,i].cpu().data.numpy(), src_field))))
+        logger.info('= ' + tostr(clean(itos(dec_inputs[:,i].cpu().data.numpy(), trg_field))))
         enc_input = (enc_inputs[:,i].unsqueeze(1), torch.LongTensor([enc_lengths[i]]))
         outputs, _ = sample(encoder, decoder, enc_input, trg_field, max_len=30, greedy=greedy, config=config)
         # sent = evaluate(encoder, decoder, enc_input, trg_field=trg_field, beam_size=beam_size)
-        print('\t< ' + tostr(clean(outputs)))
-        print()
+        logger.info('< ' + tostr(clean(outputs)) + '\n')
 
 
 def score(hyps, refs, metric='rouge'):
