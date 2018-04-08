@@ -36,29 +36,35 @@ np.random.seed(666)
 
 
 def main(args):
-    c = getattr(config, args.config)()
-    c['use_cuda'] = args.use_cuda
-    logger  = init_logging('log/{0}{1}.log'.format(c['prefix'], time.time()))
+    # Load configurations
     start = time.time()
-    logger.info(since(start) + "Loading data with configuration '{0}'...".format(args.config))
+    c = getattr(config, args.config)()
+    c['use_cuda'], c['exp'], c['mode'] = args.use_cuda, args.id, args.mode
+    assert c['exp'] is not None, "'exp' must be specified."
+    logger  = init_logging('log/{0}_{1}_{2}.log'.format(c['prefix'], c['exp'], start))
+    logger.info(since(start) + "Loading data with configuration '{0}':\n{1}".format(args.config, str(c)))
+
+    # Load datasets
     datasets, src_field, trg_field = load_data(c)
-    # TODO: validation dataset
 
     train = datasets['train']
+    n_train = len(train.examples)
+    test = datasets['test']
+    n_test = len(test.examples)
+    valid = datasets['valid']
+    n_valid = len(valid.examples)
+    batch_per_epoch = n_train // c['batch_size'] if n_train % c['batch_size'] == 0 else n_train // c['batch_size']+1
+    n_iters = batch_per_epoch * c['num_epochs']
+
+    # Build vocabularies
     src_field.build_vocab(train, max_size=c['encoder_vocab'])
     trg_field.build_vocab(train, max_size=c['decoder_vocab'])
+    PAD_IDX = trg_field.vocab.stoi[PAD] # default=1
 
     logger.info("Source vocab: {0}".format(len(src_field.vocab.itos)))
     logger.info("Target vocab: {0}".format(len(trg_field.vocab.itos)))
-
-    test = datasets['test']
-    n_test = len(test.examples)
-
-    N = len(train.examples)
-    batch_per_epoch = N // c['batch_size'] if N % c['batch_size'] == 0 else N // c['batch_size']+1
-    n_iters = batch_per_epoch * c['num_epochs']
-
-    logger.info(since(start) + "{0} training samples, {1} epochs, batch size={2}, {3} batches per epoch.".format(N, c['num_epochs'], c['batch_size'], batch_per_epoch))
+    logger.info(since(start) + "{0} training samples, {1} epochs, batch size={2}, {3} batches per epoch.".format(
+            n_train, c['num_epochs'], c['batch_size'], batch_per_epoch))
 
     train_iter = iter(BucketIterator(
         dataset=train, batch_size=c['batch_size'],
@@ -68,30 +74,48 @@ def main(args):
         dataset=test, batch_size=1,
         sort_key=lambda x: -len(x.src), device=-1))
 
+    valid_iter = iter(BucketIterator(
+        dataset=valid, batch_size=1,
+        sort_key=lambda x: -len(x.src), device=-1))
+
     del train
     del test
+    del valid
 
-    PAD_IDX = trg_field.vocab.stoi[PAD] # default=1
-
-    if args.from_scratch or not os.path.isfile(c['model_path'] + c['prefix'] + 'encoder.pkl') \
-            or not os.path.isfile(c['model_path'] + c['prefix'] + 'decoder.pkl'):
+    if not args.resume:
         # Train from scratch
         encoder = EncoderRNN(vocab_size=len(src_field.vocab), embed_size=c['encoder_embed_size'],\
                 hidden_size=c['encoder_hidden_size'], padding_idx=PAD_IDX, n_layers=c['num_layers'])
         decoder = DecoderRNN(vocab_size=len(trg_field.vocab), embed_size=c['decoder_embed_size'],\
                 hidden_size=c['decoder_hidden_size'], encoder_hidden=c['encoder_hidden_size'],\
                 padding_idx=PAD_IDX, n_layers=c['num_layers'])
-        # TODO: save training log
-        info = { 'global_step':0,
-                'steps':[],
-                'loss':[],
-                'rl_score': [],
-                'score':[]}
+        params = list(encoder.parameters()) +  list(decoder.parameters())
+        optimizer = optim.Adam(params, lr=c['learning_rate'])
+        init_epoch = init_step = 0
+
+        history = {'steps':[],
+                'epochs':[]
+                'train_loss':[],
+                'valid_loss':[],
+                'test_loss':[],
+                'test_score':[]}
+
+        logger.info(since(start) + "Start training... {0} epochs, {} steps per epoch.".format(
+                c['num_epochs'], batch_per_epoch))
     else:
-        # Load from saved model
-        logger.info(since(start) + "Loading models...")
-        encoder = torch.load(c['model_path'] + c['prefix'] + 'encoder.pkl')
-        decoder = torch.load(c['model_path'] + c['prefix'] + 'decoder.pkl')
+        assert os.path.isfile("{0}{1}_{2}.pkl".format(c['model_path'], c['prefix'], c['exp']))
+        # Load checkpoint
+        logger.info(since(start) + "Loading from {0}{1}_{2}.pkl".format(c['model_path'], c['prefix'], c[exp]))
+        cp = torch.load("{0}{1}_{2}.pkl".format(c['model_path'], c['prefix'], c['exp']))
+        encoder.load_state_dict(cp['encoder'])
+        decoder.load_state_dict(cp['decoder'])
+        params = list(encoder.parameters()) +  list(decoder.parameters())
+        optimizer = optim.Adam(params, lr=c['learning_rate'])
+        optimizer.load_state_dict(cp['optimizer'])
+        init_epoch, init_step, others, history = cp['epoch'], cp['step'], cp['others'], cp['history']
+        del cp
+        logger.info(since(start) + "Resume training from {0}/{1} epoch, {2}/{3} step".format(
+                init_epoch+1, c['num_epochs'], init_step+1, batch_per_epoch))
 
     if c['use_cuda']:
         encoder.cuda()
@@ -101,24 +125,21 @@ def main(args):
         decoder.cpu()
 
     CEL = nn.CrossEntropyLoss(size_average=True, ignore_index=PAD_IDX)
-    params = list(encoder.parameters()) +  list(decoder.parameters())
-    optimizer = optim.Adam(params, lr=c['learning_rate'])
     print_loss = 0
 
-    logger.info(since(start) + "Start training... {0} iterations...".format(n_iters))
-
     # Start training
-    for e in range(c['num_epochs']):
-        for j in range(batch_per_epoch): 
-            i = batch_per_epoch * e + j+1
+    for e in range(init_epoch, c['num_epochs']):
+        for j in range(init_step, batch_per_epoch):
+            init_step = 0
+            i = batch_per_epoch*e + j + 1 # global step
 
             batch = next(train_iter)
             encoder_inputs, encoder_lengths = batch.src
             decoder_inputs, decoder_lengths = batch.trg
-            # GPU
+
             encoder_inputs = cuda(encoder_inputs, c['use_cuda'])
             decoder_inputs = cuda(decoder_inputs, c['use_cuda'])
-            
+
             encoder_unpacked, encoder_hidden = encoder(encoder_inputs, encoder_lengths, return_packed=False)
             # we don't remove the last symbol
             decoder_unpacked, decoder_hidden = decoder(decoder_inputs[:-1,:], encoder_hidden, encoder_unpacked, encoder_lengths)
@@ -127,6 +148,7 @@ def main(args):
             ce_loss = CEL(decoder_unpacked.view(trg_len*batch_size, d), decoder_inputs[1:,:].view(-1))
             print_loss += ce_loss.data
 
+            # Self-critical sequence training
             assert args.self_critical >= 0. and args.self_critical <= 1.
             if args.self_critical > 1e-5:
                 sc_loss = cuda(Variable(torch.Tensor([0.])), c['use_cuda'])
@@ -148,12 +170,12 @@ def main(args):
                     sc_loss -= reward*torch.sum(sample_logp)
 
                 if i % c['log_step'] == 0:
-                    logger.info("CE: {0}".format(ce_loss))
-                    logger.info("SC: {0}".format(sc_loss))
-                    logger.info("GT: {0}".format(gt_sent))
-                    logger.info("greedy: {0}, {1}".format(greedy_score['rouge-1']['f'], greedy_sent))
-                    logger.info("sample: {0}, {1}".format(sample_score['rouge-1']['f'], sample_sent))
-                
+                    logger.info("CE loss: {0}".format(ce_loss))
+                    logger.info("RL loss: {0}".format(sc_loss))
+                    logger.info("Ground truth: {0}".format(gt_sent))
+                    logger.info("Greedy: {0}, {1}".format(greedy_score['rouge-1']['f'], greedy_sent))
+                    logger.info("Sample: {0}, {1}".format(sample_score['rouge-1']['f'], sample_sent))
+
                 loss = (1-args.self_critical) * ce_loss + args.self_critical * sc_loss
             else:
                 loss = ce_loss
@@ -162,24 +184,26 @@ def main(args):
             loss.backward()
             optimizer.step()
 
-            # free memory
             del encoder_inputs, decoder_inputs
 
             if i % c['save_step'] == 0:
-                # TODO: save log
+                # Save model for resuming
                 synchronize(c)
-                logger.info(since(start) + "Saving models...")
-                torch.save(encoder, c['model_path'] + c['prefix'] + 'encoder.pkl')
-                torch.save(decoder, c['model_path'] + c['prefix'] + 'decoder.pkl')
+                logger.info(since(start) + "Saving models.")
+                cp = {'encoder': encoder.state_dict(), 'decoder': decoder.state_dict(),
+                    'optimizer': optimizer.state_dict(), 'others': {}
+                    'step': j+1, 'epoch': e, 'history': history}
+                torch.save(cp, "{0}{1}_{2}.pkl".format(c['model_path'], c['prefix'], c['exp']))
 
             if i % c['log_step'] == 0:
                 synchronize(c)
-                logger.info(since(start) + 'epoch {0}/{1}, iteration {2}/{3}'.format(e, c['num_epochs'], i, n_iters))
+                logger.info(since(start) + 'epoch {0}/{1}, iteration {2}/{3}'.format(e+1, c['num_epochs'], i+1, batch_per_epoch))
                 logger.info("\tTrain loss: {0}".format(print_loss.cpu().numpy().tolist()[0] / c['log_step']))
                 print_loss = 0
                 random_eval(encoder, decoder, batch, n=1, src_field=src_field, trg_field=trg_field, config=c,
                         greedy=True, logger=logger)
 
+            # Evaluate on test set
             if i % c['test_step'] == 0:
                 test_loss = 0
                 test_rouge = 0
@@ -195,7 +219,7 @@ def main(args):
 
                     test_encoder_packed, test_encoder_hidden = encoder(test_encoder_inputs, test_encoder_lengths)
                     test_encoder_unpacked = pad_packed_sequence(test_encoder_packed)[0]
-                    # remove last symbol
+                    # we don't remove the last symbol
                     test_decoder_unpacked, test_decoder_hidden = decoder(test_decoder_inputs[:-1,:], test_encoder_hidden, test_encoder_unpacked, test_encoder_lengths)
                     trg_len, batch_size, d = test_decoder_unpacked.size()
                     # remove first symbol <SOS>
@@ -211,13 +235,13 @@ def main(args):
                     refs.append(test_gt_sent)
                     greedys.append(test_greedy_sent)
 
-                test_rouge = score(hyps=greedys, refs=refs, metric='rouge')['rouge-1']['f']
-                        
+
+                rouges = get_rouge(hyps=greedys, refs=refs)
                 synchronize(c)
                 logger.info(since(start) + "Test loss: {0}".format(test_loss.cpu().numpy().tolist()[0]/n_test))
-                logger.info(since(start) + "Test ROUGE-1_f: {0}\n".format(test_rouge))
+                logger.info(rouges)
 
-                        
+
 
 
 
@@ -226,9 +250,11 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--config', type=str, default=None ,
                         help='model configurations, defined in config.py')
-    parser.add_argument('--from_scratch', type=bool, default=False)
+    parser.add_argument('--resume', type=bool, default=True)
     parser.add_argument('--disable_cuda', type=bool, default=False)
     parser.add_argument('--self_critical', type=float, default=0.)
+    parser.add_argument('--exp', type=str, default=None)
+    parser.add_argument('--mode', type=str, default='train')
     args = parser.parse_args()
     args.use_cuda = not args.disable_cuda and torch.cuda.is_available()
     if args.use_cuda:

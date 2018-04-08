@@ -21,6 +21,7 @@ import os, time, sys
 
 class GlobalAttention(nn.Module):
     """
+    Global Attention as described in 'Effective Approaches to Attention-based Neural Machine Translation'
     """
     def __init__(self, enc_hidden, dec_hidden):
         super(GlobalAttention, self).__init__()

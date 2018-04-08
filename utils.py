@@ -25,6 +25,7 @@ from torchtext.vocab import Vocab
 from torchtext.data import Field, Pipeline, RawField, Dataset, Example, BucketIterator
 from torchtext.data import get_tokenizer
 from rouge import Rouge
+
 # TODO: add these into configuration
 EOS = "<eos>"
 SOS = "<sos>"
@@ -295,3 +296,9 @@ def clean(l):
 
 def tostr(l):
     return " ".join(l)
+
+def get_rouge(hyps, refs):
+    scores = score(hyps=greedys, refs=refs, metric='rouge')
+    s = "ROUGE-1: {0}\nROUGE-2: {1}\nROUGE-3: {2}\nROUGE-L: {3}\n".format(
+            scores['rouge-1']['f'], scores['rouge-2']['f'], scores['rouge-3']['f']
+            scores['rouge-l']['f'])
