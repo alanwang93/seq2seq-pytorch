@@ -298,7 +298,8 @@ def tostr(l):
     return " ".join(l)
 
 def get_rouge(hyps, refs):
-    scores = score(hyps=greedys, refs=refs, metric='rouge')
-    s = "ROUGE-1: {0}\nROUGE-2: {1}\nROUGE-3: {2}\nROUGE-L: {3}\n".format(
-            scores['rouge-1']['f'], scores['rouge-2']['f'], scores['rouge-3']['f']
+    scores = score(hyps=hyps, refs=refs, metric='rouge')
+    s = "ROUGE-1: {0}\nROUGE-2: {1}\nROUGE-L: {2}\n".format(
+            scores['rouge-1']['f'], scores['rouge-2']['f'],
             scores['rouge-l']['f'])
+    return s

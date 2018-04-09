@@ -23,7 +23,7 @@ from torchtext.vocab import Vocab
 # from torchtext.vocab import GloVe
 from torchtext.data import Field, Pipeline, RawField, Dataset, Example, BucketIterator
 from torchtext.data import get_tokenizer
-import os, time, sys, datetime, argparse, pickle
+import os, time, sys, datetime, argparse, pickle, json
 
 from model import EncoderRNN, DecoderRNN
 import config
@@ -39,7 +39,7 @@ def main(args):
     # Load configurations
     start = time.time()
     c = getattr(config, args.config)()
-    c['use_cuda'], c['exp'], c['mode'] = args.use_cuda, args.id, args.mode
+    c['use_cuda'], c['exp'], c['mode'] = args.use_cuda, args.exp, args.mode
     assert c['exp'] is not None, "'exp' must be specified."
     logger  = init_logging('log/{0}_{1}_{2}.log'.format(c['prefix'], c['exp'], start))
     logger.info(since(start) + "Loading data with configuration '{0}':\n{1}".format(args.config, str(c)))
@@ -81,31 +81,31 @@ def main(args):
     del train
     del test
     del valid
-
+    print(args.resume)
+    encoder = EncoderRNN(vocab_size=len(src_field.vocab), embed_size=c['encoder_embed_size'],\
+            hidden_size=c['encoder_hidden_size'], padding_idx=PAD_IDX, n_layers=c['num_layers'])
+    decoder = DecoderRNN(vocab_size=len(trg_field.vocab), embed_size=c['decoder_embed_size'],\
+            hidden_size=c['decoder_hidden_size'], encoder_hidden=c['encoder_hidden_size'],\
+            padding_idx=PAD_IDX, n_layers=c['num_layers'])
     if not args.resume:
         # Train from scratch
-        encoder = EncoderRNN(vocab_size=len(src_field.vocab), embed_size=c['encoder_embed_size'],\
-                hidden_size=c['encoder_hidden_size'], padding_idx=PAD_IDX, n_layers=c['num_layers'])
-        decoder = DecoderRNN(vocab_size=len(trg_field.vocab), embed_size=c['decoder_embed_size'],\
-                hidden_size=c['decoder_hidden_size'], encoder_hidden=c['encoder_hidden_size'],\
-                padding_idx=PAD_IDX, n_layers=c['num_layers'])
         params = list(encoder.parameters()) +  list(decoder.parameters())
         optimizer = optim.Adam(params, lr=c['learning_rate'])
         init_epoch = init_step = 0
 
         history = {'steps':[],
-                'epochs':[]
+                'epochs':[],
                 'train_loss':[],
                 'valid_loss':[],
                 'test_loss':[],
                 'test_score':[]}
 
-        logger.info(since(start) + "Start training... {0} epochs, {} steps per epoch.".format(
+        logger.info(since(start) + "Start training... {0} epochs, {1} steps per epoch.".format(
                 c['num_epochs'], batch_per_epoch))
     else:
         assert os.path.isfile("{0}{1}_{2}.pkl".format(c['model_path'], c['prefix'], c['exp']))
         # Load checkpoint
-        logger.info(since(start) + "Loading from {0}{1}_{2}.pkl".format(c['model_path'], c['prefix'], c[exp]))
+        logger.info(since(start) + "Loading from {0}{1}_{2}.pkl".format(c['model_path'], c['prefix'], c['exp']))
         cp = torch.load("{0}{1}_{2}.pkl".format(c['model_path'], c['prefix'], c['exp']))
         encoder.load_state_dict(cp['encoder'])
         decoder.load_state_dict(cp['decoder'])
@@ -191,7 +191,7 @@ def main(args):
                 synchronize(c)
                 logger.info(since(start) + "Saving models.")
                 cp = {'encoder': encoder.state_dict(), 'decoder': decoder.state_dict(),
-                    'optimizer': optimizer.state_dict(), 'others': {}
+                    'optimizer': optimizer.state_dict(), 'others': {},
                     'step': j+1, 'epoch': e, 'history': history}
                 torch.save(cp, "{0}{1}_{2}.pkl".format(c['model_path'], c['prefix'], c['exp']))
 
@@ -241,6 +241,9 @@ def main(args):
                 logger.info(since(start) + "Test loss: {0}".format(test_loss.cpu().numpy().tolist()[0]/n_test))
                 logger.info(rouges)
 
+        # TODO: Evaluate on validation set and perform early stopping
+        
+
 
 
 
@@ -250,13 +253,18 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--config', type=str, default=None ,
                         help='model configurations, defined in config.py')
-    parser.add_argument('--resume', type=bool, default=True)
     parser.add_argument('--disable_cuda', type=bool, default=False)
+    parser.add_argument('--resume', dest='resume', action='store_true')
     parser.add_argument('--self_critical', type=float, default=0.)
     parser.add_argument('--exp', type=str, default=None)
     parser.add_argument('--mode', type=str, default='train')
     args = parser.parse_args()
     args.use_cuda = not args.disable_cuda and torch.cuda.is_available()
+
+    print(args)
+    go = input('Start? y/n\n')
+    if go != 'y':
+        exit()
     if args.use_cuda:
         print("Use GPU...")
     else:

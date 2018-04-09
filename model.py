@@ -108,7 +108,7 @@ class EncoderRNN(nn.Module):
         self.embedding = nn.Embedding(vocab_size, embed_size, padding_idx=padding_idx)
         self.rnn = nn.GRU(input_size=embed_size, hidden_size=hidden_size, num_layers=n_layers)
 
-    def forward(self, inputs, lengths, return_packed=True):
+    def forward(self, inputs, lengths, return_packed=False):
         """
         Inputs:
             inputs: (seq_length, batch_size), non-packed inputs

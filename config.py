@@ -16,7 +16,7 @@ def gigawords():
     # filename is of form: 'train.src', 'test.trg'
     c['root'] = 'data/summarization/'
     c['prefix'] = 'summarization'
-    c['splits'] = ['train', 'test', 'valid']
+    c['splits'] = ['train', 'test']
     # names of Spacy models
     c['src_lang'] = 'en_core_web_sm'
     c['trg_lang'] = 'en_core_web_sm'
