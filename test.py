@@ -11,7 +11,6 @@
 """
 
 import numpy as np
-import spacy
 import torch
 import torch.nn as nn
 from torch.autograd import Variable
@@ -19,157 +18,117 @@ from torch import optim
 import torch.nn.functional as F
 from torch.utils import data
 from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
-from collections import Counter, OrderedDict
-
-from torchtext import data, datasets
+from torch.distributions import Categorical
 from torchtext.vocab import Vocab
 # from torchtext.vocab import GloVe
-from torchtext.data import Field, Pipeline, RawField, Dataset
+from torchtext.data import Field, Pipeline, RawField, Dataset, Example, BucketIterator
 from torchtext.data import get_tokenizer
-import os, time, sys, datetime, argparse
-import matplotlib.pyplot as plt
-import matplotlib.ticker as ticker
+import os, time, sys, datetime, argparse, pickle
 
 from model import EncoderRNN, DecoderRNN
+import config
+from utils import *
 
 EOS = "<eos>"
 SOS = "<sos>"
 PAD = "<pad>"
 np.random.seed(666)
 
-def stoi(s, en, fr, lang='fr'):
-    if lang == 'fr':
-        sent = [fr.vocab.stoi[w] for w in s]
-    else:
-        sent = [en.vocab.stoi[w] for w in s]
-    return sent
-
-def itos(s, en, fr, lang='en'):
-    if lang == 'en':
-        sent = " ".join([en.vocab.itos[w] for w in s])
-    else:
-        sent = " ".join([fr.vocab.itos[w] for w in s])
-    return sent.strip()
-
-def since(t):
-    return '[' + str(datetime.timedelta(seconds=time.time() - t)) + '] '
-
-
-def load_data():
-    # Read data
-    with open('data/eng-fra.txt', 'r') as f:
-        en = open('data/trans.en', 'w')
-        fr = open('data/trans.fr', 'w')
-        for l in f.readlines():
-            fr.write(l.split('\t')[1].strip() + '\n')
-            en.write(l.split('\t')[0].strip() + '\n')
-        en.close()
-        fr.close()
-
-    spacy_fr = spacy.load('fr')
-    spacy_en = spacy.load('en_core_web_sm')
-
-    def tokenize_fr(text):
-        return [tok.text for tok in spacy_fr.tokenizer(text)]
-
-    def tokenize_en(text):
-        return [tok.text for tok in spacy_en.tokenizer(text)]
-
-    # french -> english
-    en = data.Field(tokenize=tokenize_en, include_lengths=True, eos_token=EOS, init_token=SOS, lower=True)
-    fr = data.Field(tokenize=tokenize_fr, include_lengths=True, eos_token=EOS, lower=True)
-    trans = datasets.TranslationDataset(
-        path='data/trans', exts=('.fr', '.en'),
-        fields=(fr, en))
-    en.build_vocab(trans)
-    fr.build_vocab(trans)
-    return trans, en, fr
-
-def evaluate(encoder, decoder, var, dec_field, max_len=30, beam_size=-1):
-    """
-    var: tuple of tensors
-    """
-    logsm = nn.LogSoftmax()
-    # Beam search
-    # TODO: check the beam search
-    H = [([SOS], 0.)]
-    H_temp = []
-    H_final = []
-
-    outputs = []
-    encoder_inputs, encoder_lengths = var
-    encoder_packed, encoder_hidden = encoder(encoder_inputs, encoder_lengths)
-    encoder_unpacked = pad_packed_sequence(encoder_packed)[0]
-    decoder_hidden = encoder_hidden
-    decoder_inputs, decoder_lenghts = dec_field.numericalize(([[SOS]], [1]), device=-1)
-
-    if beam_size > 0:
-        for i in range(max_len):
-            for h in H:
-                hyp, s = h
-                decoder_inputs, decoder_lenghts = dec_field.numericalize(([hyp], [len(hyp)]), device=-1)
-                decoder_unpacked, decoder_hidden = decoder(decoder_inputs, decoder_hidden, encoder_unpacked, encoder_lengths)
-                topv, topi = decoder_unpacked.data[-1].topk(beam_size)
-                topv = logsm(topv)
-                for j in range(beam_size):
-                    nj = int(topi.numpy()[0][j])
-                    hyp_new = hyp + [dec_field.vocab.itos[nj]]
-                    s_new = s + topv.data.numpy().tolist()[-1][j]
-                    if dec_field.vocab.itos[nj] == EOS:
-                        H_final.append((hyp_new, s_new))
-                    else:
-                        H_temp.append((hyp_new, s_new))
-                H_temp = sorted(H_temp, key=lambda x:x[1], reverse=True)
-                H = H_temp[:beam_size]
-                H_temp = []
-
-        H_final = sorted(H_final, key=lambda x:x[1], reverse=True)
-        outputs = [" ".join(H_final[i][0]) for i in range(beam_size)]
-
-    else:
-        for i in range(max_len):
-            # Eval mode, dropout is not used
-            decoder_unpacked, decoder_hidden = decoder.eval()(decoder_inputs, decoder_hidden, encoder_unpacked, encoder_lengths)
-            topv, topi = decoder_unpacked.data.topk(1)
-            ni = int(topi.numpy()[0][0][0])
-            if dec_field.vocab.itos[ni] == EOS:
-                outputs.append(EOS)
-                break
-            else:
-                outputs.append(dec_field.vocab.itos[ni])
-            decoder_inputs = Variable(torch.LongTensor([[ni]]))
-        outputs = " ".join(outputs)
-    return outputs.strip()
-
 
 def main(args):
     start = time.time()
-    print(since(start) + "Loading data...")
-    trans, en, fr = load_data()
-    N = len(trans.examples)
-    PAD_IDX = fr.vocab.stoi[PAD] # default=1
+    print(since(start) + "Loading data with configuration '{0}'...".format(args.config))
+    c = getattr(config, args.config)()
+    c['use_cuda'] = args.use_cuda
+    datasets, src_field, trg_field = load_data(c)
+    # TODO: validation dataset
+
+    train = datasets['train']
+    src_field.build_vocab(train, max_size=c['encoder_vocab'])
+    trg_field.build_vocab(train, max_size=c['decoder_vocab'])
+    del train
+    print("Source vocab: {0}".format(len(src_field.vocab.itos)))
+    print("Target vocab: {0}".format(len(trg_field.vocab.itos)))
+
+    test = datasets['test']
+    n_test = len(test.examples)
+
+    test_iter = iter(BucketIterator(
+        dataset=test, batch_size=1,
+        sort_key=lambda x: -len(x.src), device=-1))
+
+    PAD_IDX = trg_field.vocab.stoi[PAD] # default=1
 
     print(since(start) + "Loading models...")
-    encoder = torch.load(args.model_path + 'encoder.pkl')
-    decoder = torch.load(args.model_path + 'decoder.pkl')
-    spacy_fr = spacy.load('fr')
-    sent = input(">> ")
-    while sent.strip() != ':q':
-        tokenized = [tok.text for tok in spacy_fr.tokenizer(sent.strip().lower())] + [EOS]
-        inputs, lenghts = fr.numericalize(([tokenized], [len(tokenized)]), device=-1)
-        outputs = evaluate(encoder, decoder,(inputs, lenghts), dec_field=en, beam_size=args.beam_size)
-        print("<< " + outputs + '\n')
-        sent = input(">> ")
+    encoder = torch.load(c['model_path'] + c['prefix'] + 'encoder.pkl')
+    decoder = torch.load(c['model_path'] + c['prefix'] + 'decoder.pkl')
 
+    if c['use_cuda']:
+        encoder.cuda()
+        decoder.cuda()
+    else:
+        encoder.cpu()
+        decoder.cpu()
+
+    CEL = nn.CrossEntropyLoss(size_average=True, ignore_index=PAD_IDX)
+    test_losses = []
+    test_rouges = []
+    gts = []
+    greedys = []
+    synchronize(c)
+    for i in range(n_test):
+        test_batch = next(test_iter)
+        test_encoder_inputs, test_encoder_lengths = test_batch.src
+        test_decoder_inputs, test_decoder_lengths = test_batch.trg
+        test_encoder_inputs = cuda(Variable(test_encoder_inputs.data, volatile=True), c['use_cuda'])
+        test_decoder_inputs = cuda(Variable(test_decoder_inputs.data, volatile=True), c['use_cuda'])
+
+        test_encoder_packed, test_encoder_hidden = encoder(test_encoder_inputs, test_encoder_lengths)
+        test_encoder_unpacked = pad_packed_sequence(test_encoder_packed)[0]
+        # remove last symbol
+        test_decoder_unpacked, test_decoder_hidden = decoder(test_decoder_inputs[:-1,:], test_encoder_hidden, test_encoder_unpacked, test_encoder_lengths)
+        trg_len, batch_size, d = test_decoder_unpacked.size()
+        
+        test_loss = CEL(test_decoder_unpacked.view(trg_len*batch_size, d), test_decoder_inputs[1:,:].view(-1))
+        
+        test_enc_input = (test_encoder_inputs[:,0].unsqueeze(1), torch.LongTensor([test_encoder_lengths[0]]))
+        # use self critical training
+        test_greedy_out, _ = sample(encoder, decoder, test_enc_input, trg_field,
+                max_len=30, greedy=True, config=c)
+        test_greedy_sent = tostr(clean(test_greedy_out))
+
+        test_gt_sent = tostr(clean(itos(test_decoder_inputs[:,0].cpu().data.numpy(), trg_field)))
+
+        gts.append(test_gt_sent)
+        greedys.append(test_greedy_sent)
+        test_rouges.append(score(hyps=test_greedy_sent, refs=test_gt_sent, metric='rouge')['rouge-1']['f'])
+        test_losses.append(float(test_loss.cpu().data.numpy().tolist()[0]))
+    synchronize(c)
+    print("\tTest ROUGE-1_f: ", np.mean(test_rouges))
+    print("\tTest Loss: ", np.mean(test_losses))
+    
+    with open('test.log' ,'w') as f:
+        f.write("Test loss: {0}\n".format(np.mean(test_losses)))
+        f.write("{0} samples, svg ROUGE-1_f: {1}\n".format(n_test, np.mean(test_rouges)))
+        for i in range(n_test):
+            f.write(str(test_losses[i]) + '\n')
+            f.write(str(test_rouges[i]) + '\n')
+            f.write(str(gts[i]) + '\n')
+            f.write(str(greedys[i]) + '\n')
+    
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--model_path', type=str, default='./models/' ,
-                        help='path for saving trained models')
-    parser.add_argument('--beam_size', type=int , default=-1,
-                        help='beam size')
-
+    parser.add_argument('--config', type=str, default=None ,
+                    help='model configurations, defined in config.py')
+    parser.add_argument('--from_scratch', type=bool, default=False)
+    parser.add_argument('--disable_cuda', type=bool, default=False)
+    parser.add_argument('--self_critical', type=float, default=0.)
     args = parser.parse_args()
-    print(args)
+    args.use_cuda = not args.disable_cuda and torch.cuda.is_available()
+    if args.use_cuda:
+        print("Use GPU...")
+    else:
+        print("Use CPU...")
     main(args)

@@ -4,9 +4,13 @@
 *.zip
 *.swp
 *.pkl
+log/
+*.log
+.nfs*
 
 data/
 models/
+RELEASE-1.5.5/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

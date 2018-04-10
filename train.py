@@ -7,7 +7,6 @@
 # Distributed under terms of the MIT license.
 
 """
-
 """
 
 import numpy as np
@@ -66,11 +65,6 @@ def main(args):
     logger.info("Target vocab: {0}".format(len(trg_field.vocab.itos)))
     logger.info(since(start) + "{0} training samples, {1} epochs, batch size={2}, {3} batches per epoch.".format(
             n_train, num_epoch, c['batch_size'], batch_per_epoch))
-
-    N = len(train.examples)
-    batch_per_epoch = N // c['batch_size']
-    n_iters = batch_per_epoch * c['num_epochs']
-    print(since(start) + "{0} training samples, batch size={1}, {2} batches per epoch.".format(N, c['batch_size'], batch_per_epoch))
 
     train_iter = iter(BucketIterator(
         dataset=train, batch_size=c['batch_size'],
@@ -175,24 +169,12 @@ def main(args):
                     reward = cuda(reward, c['use_cuda'])
                     sc_loss -= reward*torch.sum(sample_logp)
 
-<<<<<<< HEAD
                 if i % c['log_step'] == 0:
                     logger.info("CE loss: {0}".format(ce_loss))
                     logger.info("RL loss: {0}".format(sc_loss))
                     logger.info("Ground truth: {0}".format(gt_sent))
                     logger.info("Greedy: {0}, {1}".format(greedy_score['rouge-1']['f'], greedy_sent))
                     logger.info("Sample: {0}, {1}".format(sample_score['rouge-1']['f'], sample_sent))
-=======
-    for i in range(1, n_iters+1):
-        batch = next(train_iter)
-        encoder_inputs, encoder_lengths = batch.src
-        decoder_inputs, decoder_lengths = batch.trg
-        # GPU
-        encoder_inputs = cuda(encoder_inputs, c['use_cuda'])
-        # encoder_lengths = cuda(encoder_lengths, c['use_cuda'])
-        decoder_inputs = cuda(decoder_inputs, c['use_cuda'])
-        # decoder_lengths = cuda(decoder_lengths, c['use_cuda'])
->>>>>>> e7df9ca1f8f266fdd5c7a6574e9d6aafdfafacf9
 
                 loss = (1-args.self_critical) * ce_loss + args.self_critical * sc_loss
             else:
@@ -235,8 +217,7 @@ def main(args):
                     test_encoder_inputs = cuda(Variable(test_encoder_inputs.data, volatile=True), c['use_cuda'])
                     test_decoder_inputs = cuda(Variable(test_decoder_inputs.data, volatile=True), c['use_cuda'])
 
-                    test_encoder_packed, test_encoder_hidden = encoder(test_encoder_inputs, test_encoder_lengths)
-                    test_encoder_unpacked = pad_packed_sequence(test_encoder_packed)[0]
+                    test_encoder_unpacked, test_encoder_hidden = encoder(test_encoder_inputs, test_encoder_lengths, return_packed=False)
                     # we don't remove the last symbol
                     test_decoder_unpacked, test_decoder_hidden = decoder(test_decoder_inputs[:-1,:], test_encoder_hidden, test_encoder_unpacked, test_encoder_lengths)
                     trg_len, batch_size, d = test_decoder_unpacked.size()
