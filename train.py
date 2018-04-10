@@ -218,8 +218,7 @@ def main(args):
                     test_encoder_inputs = cuda(Variable(test_encoder_inputs.data, volatile=True), c['use_cuda'])
                     test_decoder_inputs = cuda(Variable(test_decoder_inputs.data, volatile=True), c['use_cuda'])
 
-                    test_encoder_packed, test_encoder_hidden = encoder(test_encoder_inputs, test_encoder_lengths)
-                    test_encoder_unpacked = pad_packed_sequence(test_encoder_packed)[0]
+                    test_encoder_unpacked, test_encoder_hidden = encoder(test_encoder_inputs, test_encoder_lengths, return_packed=False)
                     # we don't remove the last symbol
                     test_decoder_unpacked, test_decoder_hidden = decoder(test_decoder_inputs[:-1,:], test_encoder_hidden, test_encoder_unpacked, test_encoder_lengths)
                     trg_len, batch_size, d = test_decoder_unpacked.size()

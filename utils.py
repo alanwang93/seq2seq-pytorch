@@ -149,8 +149,7 @@ def evaluate(encoder, decoder, var, trg_field, max_len=30, beam_size=-1):
     encoder_inputs, encoder_lengths = var
     encoder_inputs = cuda(encoder_inputs, use_cuda)
     # encoder_lengths = cuda(encoder_lengths, use_cuda)
-    encoder_packed, encoder_hidden = encoder(encoder_inputs, encoder_lengths)
-    encoder_unpacked = pad_packed_sequence(encoder_packed)[0]
+    encoder_unpacked, encoder_hidden = encoder(encoder_inputs, encoder_lengths, return_packed=False)
 
     decoder_hidden = encoder_hidden
     decoder_inputs, decoder_lenghts = trg_field.numericalize(([[SOS]], [1]), device=-1)
@@ -212,8 +211,7 @@ def sample(encoder, decoder, var, trg_field, max_len=30, greedy=False, config=No
 
     encoder_inputs, encoder_lengths = var
     encoder_inputs = cuda(encoder_inputs, use_cuda)
-    encoder_packed, encoder_hidden = encoder(encoder_inputs, encoder_lengths)
-    encoder_unpacked = pad_packed_sequence(encoder_packed)[0]
+    encoder_unpacked, encoder_hidden = encoder(encoder_inputs, encoder_lengths, return_packed=False)
     decoder_hidden = encoder_hidden
     decoder_inputs, decoder_lenghts = trg_field.numericalize(([[SOS]], [1]), device=-1)
     decoder_inputs = cuda(decoder_inputs, use_cuda)
