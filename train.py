@@ -67,16 +67,16 @@ def main(args):
             n_train, num_epoch, c['batch_size'], batch_per_epoch))
 
     train_iter = iter(BucketIterator(
-        dataset=train, batch_size=c['batch_size'],
-        sort_key=lambda x: -len(x.src), device=-1))
+        dataset=train, batch_size=c['batch_size'], sort=True,
+        sort_key=lambda x: len(x.src), device=-1))
 
     test_iter = iter(BucketIterator(
-        dataset=test, batch_size=1,
-        sort_key=lambda x: -len(x.src), device=-1))
+        dataset=test, batch_size=1, sort=True,
+        sort_key=lambda x: len(x.src), device=-1))
 
     valid_iter = iter(BucketIterator(
-        dataset=valid, batch_size=1,
-        sort_key=lambda x: -len(x.src), device=-1))
+        dataset=valid, batch_size=1,sort=True,
+        sort_key=lambda x: len(x.src), device=-1))
 
     del train
     del test
@@ -257,16 +257,16 @@ def main(args):
             trg_len, batch_size, d = decoder_unpacked.size()
             valid_ce = CEL(decoder_unpacked.view(trg_len*batch_size, d), decoder_inputs[1:,:].view(-1))
             valid_loss += valid_ce.data
-        history['valid_loss'].append(valid_loss/n_valid)
+        history['valid_loss'].append(valid_loss.cpu().numpy().tolist()[0]/n_valid)
         synchronize(c)
         logger.info(since(start) + "Saving models.")
         cp = {'encoder': encoder.state_dict(), 'decoder': decoder.state_dict(),
             'optimizer': optimizer.state_dict(), 'others': {},
             'step': j+1, 'epoch': e, 'history': history}
         torch.save(cp, "{0}{1}_{2}_epoch{3}.pkl".format(c['model_path'], c['prefix'], c['exp'], e))
-
-        if valid_loss/n_valid < history['best_loss']:
-            history['best_loss'] = valid_loss/n_valid
+        logger.info("Epoch {0}, valid loss: {1}".format(e, history['valid_loss'][-1]))
+        if history['valid_loss'][-1] < history['best_loss']:
+            history['best_loss'] = history['valid_loss'][-1] 
             history['best_epoch'] = e
             torch.save(cp, "{0}{1}_{2}_best.pkl".format(c['model_path'], c['prefix'], c['exp']))
         elif args.early_stopping and e - history['best_epoch'] > patient:
