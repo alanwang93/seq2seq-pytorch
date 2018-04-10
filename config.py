@@ -32,7 +32,8 @@ def gigawords():
     c['encoder_hidden_size'] = 512
     c['decoder_hidden_size'] = 512
     # training settings
-    c['num_epochs'] = 5
+    c['num_epoch'] = 5
+    c['max_epoch'] = 50
     c['num_layers'] = 1
     c['batch_size'] = 32
     c['learning_rate'] = 0.0001

@@ -53,8 +53,9 @@ def main(args):
     n_test = len(test.examples)
     valid = datasets['valid']
     n_valid = len(valid.examples)
+    num_epoch = c['num_epoch'] if not args.early_stopping else c['max_epoch']
     batch_per_epoch = n_train // c['batch_size'] if n_train % c['batch_size'] == 0 else n_train // c['batch_size']+1
-    n_iters = batch_per_epoch * c['num_epochs']
+    n_iters = batch_per_epoch * num_epoch
 
     # Build vocabularies
     src_field.build_vocab(train, max_size=c['encoder_vocab'])
@@ -64,7 +65,7 @@ def main(args):
     logger.info("Source vocab: {0}".format(len(src_field.vocab.itos)))
     logger.info("Target vocab: {0}".format(len(trg_field.vocab.itos)))
     logger.info(since(start) + "{0} training samples, {1} epochs, batch size={2}, {3} batches per epoch.".format(
-            n_train, c['num_epochs'], c['batch_size'], batch_per_epoch))
+            n_train, num_epoch, c['batch_size'], batch_per_epoch))
 
     train_iter = iter(BucketIterator(
         dataset=train, batch_size=c['batch_size'],
@@ -81,7 +82,7 @@ def main(args):
     del train
     del test
     del valid
-    print(args.resume)
+
     encoder = EncoderRNN(vocab_size=len(src_field.vocab), embed_size=c['encoder_embed_size'],\
             hidden_size=c['encoder_hidden_size'], padding_idx=PAD_IDX, n_layers=c['num_layers'])
     decoder = DecoderRNN(vocab_size=len(trg_field.vocab), embed_size=c['decoder_embed_size'],\
@@ -92,16 +93,16 @@ def main(args):
         params = list(encoder.parameters()) +  list(decoder.parameters())
         optimizer = optim.Adam(params, lr=c['learning_rate'])
         init_epoch = init_step = 0
-
-        history = {'steps':[],
-                'epochs':[],
+        history = {'epochs':[],
                 'train_loss':[],
                 'valid_loss':[],
                 'test_loss':[],
-                'test_score':[]}
+                'test_score':[],
+                'best_epoch':-1,
+                'best_loss':float("inf")}
 
         logger.info(since(start) + "Start training... {0} epochs, {1} steps per epoch.".format(
-                c['num_epochs'], batch_per_epoch))
+                num_epoch, batch_per_epoch))
     else:
         assert os.path.isfile("{0}{1}_{2}.pkl".format(c['model_path'], c['prefix'], c['exp']))
         # Load checkpoint
@@ -115,7 +116,7 @@ def main(args):
         init_epoch, init_step, others, history = cp['epoch'], cp['step'], cp['others'], cp['history']
         del cp
         logger.info(since(start) + "Resume training from {0}/{1} epoch, {2}/{3} step".format(
-                init_epoch+1, c['num_epochs'], init_step+1, batch_per_epoch))
+                init_epoch+1, num_epoch, init_step+1, batch_per_epoch))
 
     if c['use_cuda']:
         encoder.cuda()
@@ -128,7 +129,7 @@ def main(args):
     print_loss = 0
 
     # Start training
-    for e in range(init_epoch, c['num_epochs']):
+    for e in range(init_epoch, num_epoch):
         for j in range(init_step, batch_per_epoch):
             init_step = 0
             i = batch_per_epoch*e + j + 1 # global step
@@ -197,7 +198,7 @@ def main(args):
 
             if i % c['log_step'] == 0:
                 synchronize(c)
-                logger.info(since(start) + 'epoch {0}/{1}, iteration {2}/{3}'.format(e+1, c['num_epochs'], i+1, batch_per_epoch))
+                logger.info(since(start) + 'epoch {0}/{1}, iteration {2}/{3}'.format(e, num_epoch, i, batch_per_epoch))
                 logger.info("\tTrain loss: {0}".format(print_loss.cpu().numpy().tolist()[0] / c['log_step']))
                 print_loss = 0
                 random_eval(encoder, decoder, batch, n=1, src_field=src_field, trg_field=trg_field, config=c,
@@ -241,13 +242,39 @@ def main(args):
                 logger.info(since(start) + "Test loss: {0}".format(test_loss.cpu().numpy().tolist()[0]/n_test))
                 logger.info(rouges)
 
-        # TODO: Evaluate on validation set and perform early stopping
-        
+        # One epoch is finished
+        logger.info(since(start) + "Epoch {0} is finished.".format(e))
+        # Evaluate on validation set and perform early stopping
+        valid_loss = 0
+        for j in range(n_valid):
+            batch = next(valid_iter)
+            encoder_inputs, encoder_lengths = batch.src
+            decoder_inputs, decoder_lengths = batch.trg
 
+            encoder_inputs = cuda(encoder_inputs, c['use_cuda'])
+            decoder_inputs = cuda(decoder_inputs, c['use_cuda'])
 
+            encoder_unpacked, encoder_hidden = encoder(encoder_inputs, encoder_lengths, return_packed=False)
+            decoder_unpacked, decoder_hidden = decoder(decoder_inputs[:-1,:], encoder_hidden, encoder_unpacked, encoder_lengths)
+            trg_len, batch_size, d = decoder_unpacked.size()
+            valid_ce = CEL(decoder_unpacked.view(trg_len*batch_size, d), decoder_inputs[1:,:].view(-1))
+            valid_loss += valid_ce.data
+        history['valid_loss'].append(valid_loss/n_valid)
+        synchronize(c)
+        logger.info(since(start) + "Saving models.")
+        cp = {'encoder': encoder.state_dict(), 'decoder': decoder.state_dict(),
+            'optimizer': optimizer.state_dict(), 'others': {},
+            'step': j+1, 'epoch': e, 'history': history}
+        torch.save(cp, "{0}{1}_{2}_epoch{3}.pkl".format(c['model_path'], c['prefix'], c['exp'], e))
 
-
-
+        if valid_loss/n_valid < history['best_loss']:
+            history['best_loss'] = valid_loss/n_valid
+            history['best_epoch'] = e
+            torch.save(cp, "{0}{1}_{2}_best.pkl".format(c['model_path'], c['prefix'], c['exp']))
+        elif args.early_stopping and e - history['best_epoch'] > patient:
+            # early stopping
+            logger.info(since(start) + "Early stopping at epoch {0}, best result at epoch {1}".format(e, history['best_epoch']))
+            return
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
@@ -255,9 +282,13 @@ if __name__ == '__main__':
                         help='model configurations, defined in config.py')
     parser.add_argument('--disable_cuda', type=bool, default=False)
     parser.add_argument('--resume', dest='resume', action='store_true')
+    parser.add_argument('--early_stopping', dest='early_stopping', action='store_true',
+            help='With early stopping, the training will end when valid loss doesn\'t decrease \
+            for `--patient` epochs, or at `max_epoch` epoch.')
     parser.add_argument('--self_critical', type=float, default=0.)
-    parser.add_argument('--exp', type=str, default=None)
+    parser.add_argument('--exp', type=str, default=None, help='A string that specify the name of the experiment')
     parser.add_argument('--mode', type=str, default='train')
+    parser.add_argument('--patient', type=int, default=5)
     args = parser.parse_args()
     args.use_cuda = not args.disable_cuda and torch.cuda.is_available()
 

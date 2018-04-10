@@ -298,8 +298,11 @@ def tostr(l):
     return " ".join(l)
 
 def get_rouge(hyps, refs):
+    """
+    Get average ROUGE-1, ROUGE-2, ROUGE-L F-1 scores
+    """
     scores = score(hyps=hyps, refs=refs, metric='rouge')
-    s = "ROUGE-1: {0}\nROUGE-2: {1}\nROUGE-L: {2}\n".format(
+    s = "\nROUGE-1: {0}\nROUGE-2: {1}\nROUGE-L: {2}\n".format(
             scores['rouge-1']['f'], scores['rouge-2']['f'],
             scores['rouge-l']['f'])
     return s
