@@ -18,12 +18,13 @@ import torch.nn.functional as F
 from torch.utils import data
 from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 from torch.distributions import Categorical
-import os, time, sys, datetime, argparse, pickle
+import os, time, sys, datetime, argparse, pickle, logging
 import spacy
 from torchtext.vocab import Vocab
 # from torchtext.vocab import GloVe
 from torchtext.data import Field, Pipeline, RawField, Dataset, Example, BucketIterator
 from torchtext.data import get_tokenizer
+from rouge import Rouge
 
 # TODO: add these into configuration
 EOS = "<eos>"
@@ -65,11 +66,28 @@ def stoi(s, field):
     return sent
 
 def itos(s, field):
-    sent = " ".join([field.vocab.itos[w] for w in s])
-    return sent.strip()
+    sent = [field.vocab.itos[w] for w in s]
+    return sent
 
 def since(t):
     return '[' + str(datetime.timedelta(seconds=time.time() - t)) + '] '
+
+def init_logging(log_name):
+    """
+
+    """
+    formatter = logging.Formatter('%(asctime)s [%(levelname)s] %(module)s: %(message)s',
+            datefmt='%m/%d/%Y %H:%M:%S'   )
+    handler = logging.FileHandler(log_name)
+    out = logging.StreamHandler(sys.stdout)
+
+    handler.setFormatter(formatter)
+    out.setFormatter(formatter)
+    out.setLevel(logging.INFO)
+    logging.getLogger().addHandler(handler)
+    logging.getLogger().addHandler(out)
+    logging.getLogger().setLevel(logging.INFO)
+    return logging
 
 
 def load_data(c):
@@ -107,6 +125,12 @@ def load_data(c):
             pickle.dump(examples, open(c['root'] + split + '.pkl', 'wb'))
 
     return datasets, src_field, trg_field
+
+
+def cuda(var, use_cuda):
+    if use_cuda:
+        var = var.cuda()
+    return var
 
 
 def evaluate(encoder, decoder, var, trg_field, max_len=30, beam_size=-1):
@@ -170,13 +194,22 @@ def evaluate(encoder, decoder, var, trg_field, max_len=30, beam_size=-1):
         outputs = " ".join(outputs)
     return outputs.strip()
 
-def sample(encoder, decoder, var, trg_field, max_len=30, greedy=True):
+def sample(encoder, decoder, var, trg_field, max_len=30, greedy=False, config=None):
     """ Sample an output given the input
-    """
-    sm = nn.Softmax(dim=0)
+    Args:
+        var: (Tensor, List) tuple
 
-    use_cuda = next(encoder.parameters()).is_cuda
+    Returns: (outputs, log_probas)
+        outputs: a list of str
+        log_probas: Tensor (1, len)
+
+    """
+    # use_cuda = next(encoder.parameters()).is_cuda
+    use_cuda = config['use_cuda']
+    ls = nn.LogSoftmax()
+    log_probas = []
     outputs = []
+
     encoder_inputs, encoder_lengths = var
     encoder_inputs = cuda(encoder_inputs, use_cuda)
     encoder_packed, encoder_hidden = encoder(encoder_inputs, encoder_lengths)
@@ -186,44 +219,90 @@ def sample(encoder, decoder, var, trg_field, max_len=30, greedy=True):
     decoder_inputs = cuda(decoder_inputs, use_cuda)
     for i in range(max_len):
         # TODO: shall we use eval mode?
-        # decoder_unpacked: (1, 1, vocab_size)
+        # decoder_unpacked: (1, 1, vocab_size), eval() is effective to Dropout and BatchNorm
         decoder_unpacked, decoder_hidden = decoder.eval()(decoder_inputs, decoder_hidden, encoder_unpacked, encoder_lengths)
         if greedy:
-            topv, topi = decoder_unpacked.data.topk(1)
-            tv, ti = sm(decoder_unpacked.squeeze()).data.topk(10)
-            print(tv)
+            logp, ni = torch.max(ls(decoder_unpacked.squeeze()), 0)
             # ni must be an integer, not like numpy.int32
-            ni = int(topi.cpu().numpy()[0][0][0])
+            ni = int(ni.data.cpu().numpy()[0])
         else:
-            m = Categorical(sm(decoder_unpacked.squeeze()))
+            m = Categorical(F.softmax(decoder_unpacked.squeeze()))
             ni = m.sample()
+            logp = m.log_prob(ni)
             ni = int(ni.cpu().data.numpy()[0])
-
         if trg_field.vocab.itos[ni] == EOS:
             outputs.append(EOS)
+            log_probas.append(logp)
+            # Note that the log proba of EOS is not saved,
+            # In this case, there will be no log proba
             break
         else:
             outputs.append(trg_field.vocab.itos[ni])
+        log_probas.append(logp)
         decoder_inputs = Variable(torch.LongTensor([[ni]]))
         decoder_inputs = cuda(decoder_inputs, use_cuda)
-    outputs = " ".join(outputs)
-    return outputs.strip()
+    # => row vector
+    seq_log_probas = torch.cat([p.unsqueeze(1) for p in log_probas], 1)
+    return outputs, seq_log_probas
 
 
-def random_eval(encoder, decoder, batch, n, src_field, trg_field, beam_size=-1):
+
+def random_eval(encoder, decoder, batch, n, src_field, trg_field, config=None,
+        greedy=False, metric='rouge', logger=None):
+
     enc_inputs, enc_lengths = batch.src
     dec_inputs, dec_lengths = batch.trg
+
     N = enc_inputs.size()[1]
     idx = np.random.choice(N, n)
     for i in idx:
-        print('\t> ' + itos(enc_inputs[:,i].cpu().data.numpy(), src_field))
-        print('\t= ' + itos(dec_inputs[:,i].cpu().data.numpy(), trg_field))
-        eval_input = (enc_inputs[:,i].unsqueeze(1), torch.LongTensor([enc_lengths[i]]))
-        sent = evaluate(encoder, decoder, eval_input, trg_field=trg_field, beam_size=beam_size)
-        print('\t< ' + sent)
-        print()
+        logger.info('> ' + tostr(clean(itos(enc_inputs[:,i].cpu().data.numpy(), src_field))))
+        logger.info('= ' + tostr(clean(itos(dec_inputs[:,i].cpu().data.numpy(), trg_field))))
+        enc_input = (enc_inputs[:,i].unsqueeze(1), torch.LongTensor([enc_lengths[i]]))
+        outputs, _ = sample(encoder, decoder, enc_input, trg_field, max_len=30, greedy=greedy, config=config)
+        # sent = evaluate(encoder, decoder, enc_input, trg_field=trg_field, beam_size=beam_size)
+        logger.info('< ' + tostr(clean(outputs)) + '\n')
 
-def cuda(var, use_cuda):
-    if use_cuda:
-        var = var.cuda()
-    return var
+
+def score(hyps, refs, metric='rouge'):
+    """
+    Args:
+        hyp: predicted sentence
+        ref: reference sentence
+        metric: metric to use
+    """
+    assert metric in ['rouge', 'bleu']
+    if metric is 'rouge':
+        rouge = Rouge()
+    # {"rouge-1": {"f": _, "p": _, "r": _}, "rouge-2" : { ..     }, "rouge-3": { ... }}
+        scores = rouge.get_scores(hyps, refs, avg=True)
+    elif metric is 'bleu':
+        pass
+    return scores
+
+def get_rewards(encoder, decoder,src_field, trg_field, beam_size=-1, metric='rouge'):
+    pass
+
+def synchronize(config):
+    if config['use_cuda']:
+        torch.cuda.synchronize()
+
+def clean(l):
+    """
+    Remove special symbols from a list of str
+    """
+    symbols = [EOS, SOS, PAD]
+    return [w for w in l if w not in symbols]
+
+def tostr(l):
+    return " ".join(l)
+
+def get_rouge(hyps, refs):
+    """
+    Get average ROUGE-1, ROUGE-2, ROUGE-L F-1 scores
+    """
+    scores = score(hyps=hyps, refs=refs, metric='rouge')
+    s = "\nROUGE-1: {0}\nROUGE-2: {1}\nROUGE-L: {2}\n".format(
+            scores['rouge-1']['f'], scores['rouge-2']['f'],
+            scores['rouge-l']['f'])
+    return s

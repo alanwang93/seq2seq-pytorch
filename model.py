@@ -21,6 +21,7 @@ import os, time, sys
 
 class GlobalAttention(nn.Module):
     """
+    Global Attention as described in 'Effective Approaches to Attention-based Neural Machine Translation'
     """
     def __init__(self, enc_hidden, dec_hidden):
         super(GlobalAttention, self).__init__()
@@ -31,7 +32,7 @@ class GlobalAttention(nn.Module):
         self.linear_in = nn.Linear(enc_hidden, dec_hidden, bias=False)
         # W [c, h_t]
         self.linear_out = nn.Linear(dec_hidden + enc_hidden, dec_hidden)
-        self.softmax = nn.Softmax(dim=1)
+        self.softmax = nn.Softmax()
         self.tanh = nn.Tanh()
 
     def sequence_mask(self, lengths, max_len=None):
@@ -107,23 +108,25 @@ class EncoderRNN(nn.Module):
         self.embedding = nn.Embedding(vocab_size, embed_size, padding_idx=padding_idx)
         self.rnn = nn.GRU(input_size=embed_size, hidden_size=hidden_size, num_layers=n_layers)
 
-    def forward(self, inputs, lengths):
+    def forward(self, inputs, lengths, return_packed=False):
         """
         Inputs:
-            inputs: (seq_length, batch_size)
+            inputs: (seq_length, batch_size), non-packed inputs
             lengths: (batch_size)
         """
         # [seq_length, batch_size, embed_length]
         embedded = self.embedding(inputs)
         packed = pack_padded_sequence(embedded, lengths=lengths.numpy())
         outputs, hiddens = self.rnn(packed)
+        if not return_packed:
+            return pad_packed_sequence(outputs)[0], hiddens
         return outputs, hiddens
 
 
 class DecoderRNN(nn.Module):
     """
     """
-    def __init__(self, vocab_size, embed_size, hidden_size, n_layers=1, encoder_hidden=None, dropout_p=0.2, padding_idx=1):
+    def __init__(self, vocab_size, embed_size, hidden_size, n_layers=1, encoder_hidden=None, dropout_p=0.2, padding_idx=1, packed=True):
         super(DecoderRNN, self).__init__()
         self.n_layers = n_layers
         self.hidden_size = hidden_size
@@ -140,23 +143,22 @@ class DecoderRNN(nn.Module):
 
     def forward(self, inputs, hidden, context, context_lengths):
         """
-        inputs: (tgt_len, batch, d)
+        inputs: (tgt_len, batch_size, d)
         hidden: last hidden state from encoder
-        context: (src_len x batch x hidden_size), outputs of encoder
+        context: (src_len, batch_size, hidden_size), outputs of encoder
         """
         # Teacher-forcing, not packed!
         embedded = self.embedding(inputs)
         embedded = self.dropout(embedded)
-        decoder_output, decoder_hidden = self.rnn(embedded, hidden)
-
-
+        decoder_unpacked, decoder_hidden = self.rnn(embedded, hidden)
         # Calculate the attention.
         attn_outputs, attn_scores = self.attn(
-            decoder_output.transpose(0, 1).contiguous(),  # (len, batch, d) -> (batch, len, d)
+            decoder_unpacked.transpose(0, 1).contiguous(),  # (len, batch, d) -> (batch, len, d)
             context.transpose(0, 1).contiguous(),         # (len, batch, d) -> (batch, len, d)
             context_lengths=context_lengths
         )
         # Don't need LogSoftmax with CrossEntropyLoss
         # the outputs are not normalized, and can be negative
+        # Note that a mask is needed to compute the loss
         outputs = self.linear_out(attn_outputs)
         return outputs, decoder_hidden
